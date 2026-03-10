@@ -72,6 +72,51 @@ def find_or_add_ss(ss_root, text):
     new_t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
     return len(sis)
 
+def add_rich_desc_ss_colored(ss_root, text, square_rgb):
+    """
+    ■ だけ指定色・太字、残りは黒文字のリッチテキストを sharedStrings に追加する。
+    square_rgb: '■' のフォント色 (RRGGBB 例: 'FF0000')
+    戻り値: インデックス
+    """
+    NS   = SS_NS
+    XML  = 'http://www.w3.org/XML/1998/namespace'
+
+    sis = ss_root.findall(f'{{{NS}}}si')
+    idx = len(sis)
+    si  = etree.SubElement(ss_root, f'{{{NS}}}si')
+
+    pos = 0
+    while pos < len(text):
+        ch = text[pos]
+        if ch == '■':
+            # ■ だけ色付き run
+            r   = etree.SubElement(si, f'{{{NS}}}r')
+            rpr = etree.SubElement(r, f'{{{NS}}}rPr')
+            # フォントサイズ（テンプレートに合わせて 11pt）
+            sz  = etree.SubElement(rpr, f'{{{NS}}}sz'); sz.set('val', '11')
+            col = etree.SubElement(rpr, f'{{{NS}}}color'); col.set('rgb', 'FF' + square_rgb)
+            fnt = etree.SubElement(rpr, f'{{{NS}}}rFont'); fnt.set('val', 'Yu Gothic UI')
+            t   = etree.SubElement(r, f'{{{NS}}}t')
+            t.text = '■'
+            t.set(f'{{{XML}}}space', 'preserve')
+            pos += 1
+        else:
+            # ■ 以外を連続して1つの run にまとめる
+            end = pos
+            while end < len(text) and text[end] != '■':
+                end += 1
+            r   = etree.SubElement(si, f'{{{NS}}}r')
+            rpr = etree.SubElement(r, f'{{{NS}}}rPr')
+            sz  = etree.SubElement(rpr, f'{{{NS}}}sz'); sz.set('val', '11')
+            col = etree.SubElement(rpr, f'{{{NS}}}color'); col.set('rgb', 'FF000000')
+            fnt = etree.SubElement(rpr, f'{{{NS}}}rFont'); fnt.set('val', 'Yu Gothic UI')
+            t   = etree.SubElement(r, f'{{{NS}}}t')
+            t.text = text[pos:end]
+            t.set(f'{{{XML}}}space', 'preserve')
+            pos = end
+
+    return idx
+
 def set_cell_ss(sheet_root, ref, idx):
     for c in sheet_root.iter(f'{{{SS_NS}}}c'):
         if c.get('r') == ref:
@@ -158,9 +203,14 @@ def generate_excel(project, parts):
         sr    = etree.fromstring(tmpl_sheet_xml)
         j1_i  = find_or_add_ss(ss_root, j1)
         j2_i  = find_or_add_ss(ss_root, part['name'])
-        j20_i = find_or_add_ss(ss_root, wd)
-        old_i = find_or_add_ss(ss_root, ' ' + part.get('oldDesc', '■内：旧部品'))
-        new_i = find_or_add_ss(ss_root, ' ' + part.get('newDesc', '■内：新部品'))
+        # 作業日: フロントから受け取った値を優先、なければサーバー側の今日の日付
+        part_wd = (part.get('workdate') or '').strip()
+        j20_i = find_or_add_ss(ss_root, part_wd if part_wd else wd)
+        # ■ を赤(旧部品) / 黄(新部品) で色付き rich text に
+        old_text = ' ' + part.get('oldDesc', '■内：旧部品')
+        new_text = ' ' + part.get('newDesc', '■内：新部品')
+        old_i = add_rich_desc_ss_colored(ss_root, old_text, 'FF0000')  # 赤
+        new_i = add_rich_desc_ss_colored(ss_root, new_text, 'FFD700')  # 黄色
 
         set_cell_ss(sr, 'J1',  j1_i);  set_cell_ss(sr, 'J2',  j2_i)
         set_cell_ss(sr, 'J20', j20_i); set_cell_ss(sr, 'J10', old_i)
