@@ -220,10 +220,13 @@ input[type=file]{display:none;}
     <div class="sheet-handle"></div>
     <div class="sheet-hdr"><div class="sheet-title" id="part-sheet-title">🔧 部品追加</div><button class="sheet-x" onclick="closePartSheet()">×</button></div>
     <div class="sheet-body">
-      <div class="field"><label>部品名（シート名・J2セル）*</label><input id="pm-name" placeholder="例：ミニチュアリレー　#LCM"></div>
       <div class="field-row">
-        <div class="field"><label>旧部品説明（J10/J35）</label><input id="pm-old" placeholder="■内：旧部品"></div>
-        <div class="field"><label>新部品説明（J32/J56）</label><input id="pm-new" placeholder="■内：新部品"></div>
+        <div class="field" style="flex:2"><label>部品名（シート名・J2セル）*</label><input id="pm-name" placeholder="例：ミニチュアリレー　#LCM"></div>
+        <div class="field"><label>作業日（J20）</label><input id="pm-workdate" type="date"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>旧部品説明（J10/J35）<span style="color:var(--red);font-size:10px;margin-left:4px;">■赤</span></label><input id="pm-old" placeholder="■内：旧部品"></div>
+        <div class="field"><label>新部品説明（J32/J56）<span style="color:#FFD700;font-size:10px;margin-left:4px;">■黄</span></label><input id="pm-new" placeholder="■内：新部品"></div>
       </div>
       <div class="divider"></div>
       <div style="font-size:13px;font-weight:600;margin-bottom:12px;">📷 写真（3枚）</div>
@@ -463,6 +466,7 @@ async function openPartSheet(projId,partId){
     document.getElementById('pm-name').value=part.name||'';
     document.getElementById('pm-old').value=part.oldDesc||'■内：旧部品';
     document.getElementById('pm-new').value=part.newDesc||'■内：新部品';
+    document.getElementById('pm-workdate').value=part.workdate||todayJST();
     for(const slot of['before','compare','after']){
       if(part.photos&&part.photos[slot]){const b64=await dbGet(pkey(projId,partId,slot));slotData[slot]=b64;if(b64)setSlotImg(slot,b64);else clearSlotUI(slot);}
       else clearSlotUI(slot);
@@ -471,6 +475,7 @@ async function openPartSheet(projId,partId){
     document.getElementById('pm-name').value='';
     document.getElementById('pm-old').value='■内：旧部品';
     document.getElementById('pm-new').value='■内：新部品';
+    document.getElementById('pm-workdate').value=todayJST();
     ['before','compare','after'].forEach(clearSlotUI);
   }
   updateProgress();document.getElementById('part-sheet').classList.add('open');document.body.style.overflow='hidden';
@@ -493,6 +498,7 @@ async function savePart(){
     id:partId,name,
     oldDesc:document.getElementById('pm-old').value.trim(),
     newDesc:document.getElementById('pm-new').value.trim(),
+    workdate:document.getElementById('pm-workdate').value||todayJST(),
     // photos はフラグのみ — base64 は localStorage に入れない
     photos:{before:!!slotData.before,compare:!!slotData.compare,after:!!slotData.after},
     updatedAt:new Date().toISOString(),
@@ -577,7 +583,7 @@ async function exportExcel(projId){
     const partsWithPhotos=await Promise.all((proj.parts||[]).map(async part=>{
       const photos={};
       for(const slot of['before','compare','after'])if(part.photos&&part.photos[slot])photos[slot]=await dbGet(pkey(projId,part.id,slot));
-      return{...part,photos};
+      return{...part,photos,workdate:toWorkdateStr(part.workdate||'')};
     }));
     document.getElementById('loading-msg').textContent='Excelを生成中...';
     const resp=await fetch(sUrl.replace(/\/$/,'')+'/api/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:{code:proj.code,name:proj.name},parts:partsWithPhotos})});
@@ -591,6 +597,17 @@ async function exportExcel(projId){
   }catch(e){toast('エラー: '+e.message,'error');}finally{hideLoading();}
 }
 
+// 今日の日付を JST で YYYY-MM-DD 形式（date input 用）で返す
+function todayJST(){
+  const d=new Date(Date.now()+9*60*60*1000);
+  return d.toISOString().slice(0,10);
+}
+// JST 日付文字列 (YYYY-MM-DD) を Excel用表示形式 (YYYY.M.D　作業) に変換
+function toWorkdateStr(isoDate){
+  if(!isoDate) return '';
+  const [y,m,d]=isoDate.split('-');
+  return `${parseInt(y)}.${parseInt(m)}.${parseInt(d)}　作業`;
+}
 function photoCount(part){return['before','compare','after'].filter(s=>part.photos&&part.photos[s]).length;}
 function isComplete(part){return photoCount(part)===3;}
 function showLoading(msg){document.getElementById('loading-msg').textContent=msg||'処理中...';document.getElementById('loading').classList.add('show');}
