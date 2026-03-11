@@ -197,6 +197,18 @@ input[type=file]{display:none;}
       <div style="font-size:11px;font-weight:700;color:var(--mut);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;">構成メモ</div>
       <div style="font-size:12px;color:var(--mut);line-height:2.0;">フロント: このHTMLをGitHub Pagesで公開<br>バック: app.py をサーバーで起動<br>DB: db.xlsx（A=管理番号 B=物件名 C=担当者）</div>
     </div>
+    <div style="background:var(--sur);border:1px solid var(--bdr);border-radius:14px;padding:16px;margin-bottom:12px;">
+      <div style="font-size:11px;font-weight:700;color:var(--mut);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;">👥 複数ユーザー対応について</div>
+      <div style="font-size:12px;color:var(--mut);line-height:2.0;">
+        <b style="color:var(--txt);">現在の構成（1人用）</b><br>
+        各自がGoogleアカウントでログインし、自分のDriveに保存する方式。<br><br>
+        <b style="color:var(--txt);">複数ユーザー対応の方法</b><br>
+        ① <b>Googleドライブ共有フォルダ</b>方式：1人がフォルダを作成し他メンバーに共有。ただし同時編集で上書き競合の可能性あり。<br>
+        ② <b>Firebase Realtime Database</b>方式：リアルタイム同期・競合解決に対応。別途Firebaseプロジェクトの設定が必要。<br>
+        ③ <b>Flaskサーバー拡張</b>方式：app.pyにユーザー認証・DB（SQLite/PostgreSQL）を追加。最も堅牢。<br><br>
+        <span style="color:var(--acc);">推奨：現時点では①の共有フォルダ方式が最も手軽です。</span>
+      </div>
+    </div>
 
     <!-- 写真枠設定カード -->
     <div style="background:var(--sur);border:1px solid var(--bdr);border-radius:14px;padding:16px;margin-bottom:12px;">
@@ -291,6 +303,12 @@ input[type=file]{display:none;}
         <button class="btn btn-danger btn-sm" id="drive-logout-btn" onclick="driveLogout()" style="display:none;">ログアウト</button>
       </div>
       <div id="drive-status" style="margin-top:10px;font-size:12px;color:var(--mut);">— 未設定 —</div>
+      <div id="drive-sheet-link" style="margin-top:8px;display:none;">
+        <a id="drive-sheet-url" href="#" target="_blank" class="btn btn-secondary btn-sm" style="font-size:12px;">
+          📊 スプレッドシートを開く
+        </a>
+        <button class="btn btn-secondary btn-sm" style="font-size:12px;margin-left:6px;" onclick="driveSyncNow()">🔄 今すぐ同期</button>
+      </div>
     </div>
   </div>
 </div>
@@ -352,9 +370,30 @@ input[type=file]{display:none;}
       <div class="divider"></div>
       <div style="font-size:13px;font-weight:600;margin-bottom:12px;">📷 写真（3枚）</div>
       <div class="slots">
-        <div class="slot-wrap"><div class="slot-lbl">① 交換前</div><div class="slot-box" id="slot-before" onclick="triggerSlot('before')"><div class="slot-icon">📷</div><div class="slot-hint">タップして追加</div></div><input type="file" id="file-before" accept="image/*" capture="environment" onchange="handleFile(event,'before')"></div>
-        <div class="slot-wrap"><div class="slot-lbl">② 新旧比較</div><div class="slot-box" id="slot-compare" onclick="triggerSlot('compare')"><div class="slot-icon">🔄</div><div class="slot-hint">タップして追加</div></div><input type="file" id="file-compare" accept="image/*" capture="environment" onchange="handleFile(event,'compare')"></div>
-        <div class="slot-wrap"><div class="slot-lbl">③ 交換後</div><div class="slot-box" id="slot-after" onclick="triggerSlot('after')"><div class="slot-icon">✅</div><div class="slot-hint">タップして追加</div></div><input type="file" id="file-after" accept="image/*" capture="environment" onchange="handleFile(event,'after')"></div>
+        <div class="slot-wrap">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+            <div class="slot-lbl" style="margin-bottom:0;">① 交換前</div>
+            <button class="btn btn-primary btn-sm" id="save-btn-before" onclick="saveSlot('before')" style="font-size:11px;padding:4px 10px;display:none;">💾 保存</button>
+          </div>
+          <div class="slot-box" id="slot-before" onclick="triggerSlot('before')"><div class="slot-icon">📷</div><div class="slot-hint">タップして追加</div></div>
+          <input type="file" id="file-before" accept="image/*" capture="environment" onchange="handleFile(event,'before')">
+        </div>
+        <div class="slot-wrap">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+            <div class="slot-lbl" style="margin-bottom:0;">② 新旧比較</div>
+            <button class="btn btn-primary btn-sm" id="save-btn-compare" onclick="saveSlot('compare')" style="font-size:11px;padding:4px 10px;display:none;">💾 保存</button>
+          </div>
+          <div class="slot-box" id="slot-compare" onclick="triggerSlot('compare')"><div class="slot-icon">🔄</div><div class="slot-hint">タップして追加</div></div>
+          <input type="file" id="file-compare" accept="image/*" capture="environment" onchange="handleFile(event,'compare')">
+        </div>
+        <div class="slot-wrap">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+            <div class="slot-lbl" style="margin-bottom:0;">③ 交換後</div>
+            <button class="btn btn-primary btn-sm" id="save-btn-after" onclick="saveSlot('after')" style="font-size:11px;padding:4px 10px;display:none;">💾 保存</button>
+          </div>
+          <div class="slot-box" id="slot-after" onclick="triggerSlot('after')"><div class="slot-icon">✅</div><div class="slot-hint">タップして追加</div></div>
+          <input type="file" id="file-after" accept="image/*" capture="environment" onchange="handleFile(event,'after')">
+        </div>
       </div>
       <div class="prog-wrap" id="pm-progress" style="display:none;">
         <div class="prog-label"><span>写真</span><span id="pm-prog-count">0 / 3</span></div>
@@ -516,7 +555,10 @@ function projCardHtml(proj){
   const expCls=proj.expanded?'expanded':'';
   const chvCls=proj.expanded?'open':'';
   const partsHtml=total?parts.map(p=>partRowHtml(proj.id,p)).join(''):`<div class="parts-empty">部品がまだ登録されていません</div>`;
-  const exportRow=total?`<div class="proj-export-row"><button class="btn btn-success btn-full" style="font-size:14px;padding:12px;" onclick="exportExcel('${proj.id}')">📊 Excelを出力する</button></div>`:'';
+  const exportRow=total?`<div class="proj-export-row" style="display:flex;gap:8px;align-items:center;">
+    <button class="btn btn-secondary btn-sm" style="flex-shrink:0;white-space:nowrap;" onclick="toggleAllParts('${proj.id}')">全選択</button>
+    <button class="btn btn-success btn-full" style="font-size:14px;padding:12px;" onclick="exportCheckedParts('${proj.id}')">📊 Excelを出力する</button>
+  </div>`:'';
   return `<div class="proj-card ${expCls}" id="proj-card-${proj.id}">
     <div class="proj-hdr" onclick="toggleProj('${proj.id}')">
       <div class="proj-dot ${dotCls}"></div>
@@ -544,10 +586,18 @@ function partRowHtml(projId,part){
     ?`<div class="part-thumb"><img id="thumb-${projId}-${part.id}-${s}" src="" loading="lazy"></div>`
     :`<div class="part-thumb" style="opacity:.3">${icons[i]}</div>`).join('');
   const badge=done?`<span class="part-badge badge-done">完成</span>`:`<span class="part-badge badge-wip">${cnt}/3</span>`;
-  return `<div class="part-row" onclick="openPartSheet('${projId}','${part.id}')">
-    <div class="part-thumbs">${thumbs}</div>
-    <div class="part-row-name">${esc(part.name)}${badge}</div>
-    <div style="color:var(--mut);font-size:14px;flex-shrink:0;">›</div>
+  const wd=part.workdate?`<span style="font-size:11px;color:var(--mut);margin-left:6px;">📅${part.workdate}</span>`:'';
+  const chkId=`chk-${projId}-${part.id}`;
+  return `<div class="part-row" style="gap:8px;">
+    <input type="checkbox" id="${chkId}" class="part-chk" data-proj="${projId}" data-part="${part.id}"
+           onclick="event.stopPropagation();" style="width:18px;height:18px;flex-shrink:0;cursor:pointer;accent-color:var(--acc);">
+    <div class="part-thumbs" style="flex-shrink:0;" onclick="openPartSheet('${projId}','${part.id}')">
+      ${thumbs}
+    </div>
+    <div class="part-row-name" onclick="openPartSheet('${projId}','${part.id}')" style="flex:1;min-width:0;">
+      <div>${esc(part.name)}${badge}</div>${wd}
+    </div>
+    <div style="color:var(--mut);font-size:14px;flex-shrink:0;" onclick="openPartSheet('${projId}','${part.id}')">›</div>
   </div>`;
 }
 
@@ -629,6 +679,10 @@ async function openPartSheet(projId,partId){
   document.getElementById('part-delete-btn').style.display=isNew?'none':'inline-flex';
   slotData={before:null,compare:null,after:null};
   slotFrames={before:null,compare:null,after:null};
+  ['before','compare','after'].forEach(s=>{
+    const b=document.getElementById('save-btn-'+s);
+    if(b) b.style.display='none';
+  });
   if(!isNew){
     const proj=projects.find(p=>p.id===projId);
     const part=(proj?.parts||[]).find(p=>p.id===partId)||{};
@@ -657,6 +711,33 @@ async function openPartSheet(projId,partId){
   updateProgress();document.getElementById('part-sheet').classList.add('open');document.body.style.overflow='hidden';
 }
 function closePartSheet(){document.getElementById('part-sheet').classList.remove('open');document.body.style.overflow='';}
+// ── 写真の個別保存ボタン ─────────────────────────────────────
+async function saveSlot(slot){
+  if(!slotData[slot]){toast('写真がありません','error');return;}
+  if(!editPartProjId){toast('先に部品名を入力して保存してください','error');return;}
+  // 部品IDがまだない場合は部品情報を先に保存
+  if(!editPartId){
+    await savePart();
+    return;
+  }
+  const key=pkey(editPartProjId,editPartId,slot);
+  await dbPut(key,slotData[slot]);
+  // Drive にアップロード
+  if(driveToken) driveUploadPhoto(editPartProjId,editPartId,slot,slotData[slot]).catch(()=>{});
+  // photos フラグを更新
+  const proj=projects.find(p=>p.id===editPartProjId);
+  const part=(proj?.parts||[]).find(p=>p.id===editPartId);
+  if(part){
+    if(!part.photos) part.photos={};
+    part.photos[slot]=true;
+    saveMeta();
+  }
+  const btn=document.getElementById('save-btn-'+slot);
+  if(btn) btn.style.display='none';
+  const slotNames={'before':'交換前','compare':'比較','after':'交換後'};
+  toast(`${slotNames[slot]||slot}の写真を保存しました`,'success');
+}
+
 async function savePart(){
   const name=(document.getElementById('pm-name').value||'').trim();
   if(!name){toast('部品名を入力してください','error');return;}
@@ -664,7 +745,7 @@ async function savePart(){
   if(!proj){toast('物件が見つかりません','error');return;}
   if(!proj.parts)proj.parts=[];
   const partId=editPartId||(Date.now()+'_'+Math.random().toString(36).slice(2,6));
-  // 写真を IDB へ保存
+  // 写真を IDB へ保存（未保存のものだけ）
   for(const slot of['before','compare','after']){
     const key=pkey(editPartProjId,partId,slot);
     if(slotData[slot])await dbPut(key,slotData[slot]);
@@ -706,6 +787,9 @@ function handleFile(e,slot){
   r.onload=async ev=>{
     const b64=await compressImage(ev.target.result,1.0);
     slotData[slot]=b64;setSlotImg(slot,b64);updateProgress();
+    // 個別保存ボタンを表示（新規追加・変更時）
+    const btn=document.getElementById('save-btn-'+slot);
+    if(btn) btn.style.display='inline-flex';
   };
   r.readAsDataURL(file);e.target.value='';
 }
@@ -765,14 +849,34 @@ function clearSlotUI(slot){const icons={before:'📷',compare:'🔄',after:'✅'
 function updateProgress(){const cnt=['before','compare','after'].filter(s=>slotData[s]).length;const w=document.getElementById('pm-progress');if(cnt>0){w.style.display='block';document.getElementById('pm-prog-count').textContent=cnt+' / 3';document.getElementById('pm-prog-fill').style.width=(cnt/3*100)+'%';}else w.style.display='none';}
 
 // Export
-async function exportExcel(projId){
+// ── 全選択トグル ─────────────────────────────────────────────
+function toggleAllParts(projId){
+  const chks=[...document.querySelectorAll(`.part-chk[data-proj="${projId}"]`)];
+  const allChecked=chks.every(c=>c.checked);
+  chks.forEach(c=>c.checked=!allChecked);
+}
+
+// ── チェック済部品のみExcel出力 ──────────────────────────────
+async function exportCheckedParts(projId){
+  const proj=projects.find(p=>p.id===projId);
+  if(!proj) return;
+  // チェックされた part ID を収集
+  const chks=[...document.querySelectorAll(`.part-chk[data-proj="${projId}"]:checked`)];
+  const checkedIds=new Set(chks.map(c=>c.dataset.part));
+  const targetParts=(proj.parts||[]).filter(p=>checkedIds.has(p.id));
+  if(!targetParts.length){toast('部品を選択してください','error');return;}
+  await exportExcel(projId, targetParts);
+}
+
+async function exportExcel(projId, partsOverride){
   const sUrl=localStorage.getItem('kp3-server')||serverUrl||'';
   if(!sUrl){toast('設定からサーバーURLを入力してください','error');showPage('settings',document.getElementById('bnav-settings'));return;}
   const proj=projects.find(p=>p.id===projId);
-  if(!proj||!proj.parts?.length){toast('部品が登録されていません','error');return;}
+  if(!proj){toast('物件が見つかりません','error');return;}
   showLoading('写真を読み込み中...');
   try{
-    const partsWithPhotos=await Promise.all((proj.parts||[]).map(async part=>{
+    const srcParts = partsOverride || proj.parts || [];
+    const partsWithPhotos=await Promise.all(srcParts.map(async part=>{
       const photos={};
       for(const slot of['before','compare','after'])if(part.photos&&part.photos[slot])photos[slot]=await dbGet(pkey(projId,part.id,slot));
       return{...part,photos,workdate:toWorkdateStr(part.workdate||''),slotFrames:part.slotFrames||{}};
@@ -1226,14 +1330,17 @@ window.addEventListener('resize',()=>{ if(feImg){feResizeCanvas();feRedraw();} }
 // GOOGLE DRIVE 連携
 // ================================================================
 // スコープ: Drive ファイル操作（appdata + drive.file）
-const DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/spreadsheets';
 const DRIVE_FOLDER = '工事写真';  // Drive上のルートフォルダ名
 
 let driveToken = null;          // OAuth アクセストークン
 let driveFolderIds = {};        // {root, photos, exports} のフォルダID
-let driveDataFileId = null;     // data.json のファイルID
+let driveDataFileId = null;     // data.json のファイルID（旧互換）
+let driveSheetId = null;        // Google Sheets スプレッドシートID
 
 // ── 初期化 ────────────────────────────────────────────────────
+let driveRefreshTimer = null;
+
 function initDrive() {
   const clientId = localStorage.getItem('drive-client-id') || '';
   const token    = localStorage.getItem('drive-token') || '';
@@ -1242,11 +1349,53 @@ function initDrive() {
     document.getElementById('drive-client-id').value = clientId;
     document.getElementById('drive-login-btn').style.display = 'inline-flex';
   }
-  if (token && Date.now() < expiry) {
+  if (token && Date.now() < expiry - 60000) {
     driveToken = token;
     updateDriveStatus(true);
+    // 残り時間に合わせて自動リフレッシュをスケジュール
+    scheduleDriveRefresh(expiry);
   } else {
-    localStorage.removeItem('drive-token');
+    // トークン切れでもClientIDがあれば自動サイレントログイン試行
+    if (clientId) {
+      setTimeout(() => driveAutoRefresh(), 500);
+    } else {
+      updateDriveStatus(false);
+    }
+  }
+}
+
+function scheduleDriveRefresh(expiry) {
+  if (driveRefreshTimer) clearTimeout(driveRefreshTimer);
+  // 期限の5分前にリフレッシュ
+  const delay = Math.max(0, expiry - Date.now() - 5 * 60 * 1000);
+  driveRefreshTimer = setTimeout(() => driveAutoRefresh(), delay);
+}
+
+function driveAutoRefresh() {
+  const clientId = localStorage.getItem('drive-client-id') || '';
+  if (!clientId) return;
+  try {
+    const tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: DRIVE_SCOPES,
+      prompt: '',  // ← ユーザー操作なしでサイレントリフレッシュ
+      callback: async (resp) => {
+        if (resp.error) {
+          console.warn('Drive auto-refresh failed:', resp.error);
+          updateDriveStatus(false);
+          return;
+        }
+        driveToken = resp.access_token;
+        const expiry = Date.now() + (resp.expires_in * 1000);
+        localStorage.setItem('drive-token', driveToken);
+        localStorage.setItem('drive-token-expiry', String(expiry));
+        updateDriveStatus(true);
+        scheduleDriveRefresh(expiry);
+      },
+    });
+    tokenClient.requestAccessToken({ prompt: '' });
+  } catch(e) {
+    console.warn('Drive autoRefresh error:', e);
     updateDriveStatus(false);
   }
 }
@@ -1273,6 +1422,7 @@ function driveLogin() {
       localStorage.setItem('drive-token', driveToken);
       localStorage.setItem('drive-token-expiry', String(expiry));
       updateDriveStatus(true);
+      scheduleDriveRefresh(expiry);  // 自動リフレッシュをスケジュール
       toast('Google Driveに接続しました ✅', 'success');
       // フォルダ構造を初期化
       await ensureDriveFolders();
@@ -1299,10 +1449,17 @@ function updateDriveStatus(connected) {
     st.innerHTML = '<span style="color:var(--grn)">✅ 接続済み — 写真・データを自動同期中</span>';
     loginBtn.style.display  = 'none';
     logoutBtn.style.display = 'inline-flex';
+    // スプレッドシートリンクを更新
+    const sheetLink = document.getElementById('drive-sheet-link');
+    const sheetUrl  = document.getElementById('drive-sheet-url');
+    if (sheetLink) sheetLink.style.display = 'flex';
+    if (sheetUrl && driveSheetId) sheetUrl.href = `https://docs.google.com/spreadsheets/d/${driveSheetId}`;
   } else {
     st.innerHTML = '<span style="color:var(--mut)">— 未接続 —</span>';
     loginBtn.style.display  = localStorage.getItem('drive-client-id') ? 'inline-flex' : 'none';
     logoutBtn.style.display = 'none';
+    const sheetLink = document.getElementById('drive-sheet-link');
+    if (sheetLink) sheetLink.style.display = 'none';
   }
 }
 
@@ -1344,45 +1501,100 @@ async function driveSaveData() {
   if (!driveToken) return;
   if (!driveFolderIds.root) await ensureDriveFolders();
   if (!driveFolderIds.root) return;
-
-  const json = JSON.stringify(projects, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
-
   try {
-    if (driveDataFileId) {
-      // 既存ファイルを更新
-      await fetch(`https://www.googleapis.com/upload/drive/v3/files/${driveDataFileId}?uploadType=media`, {
-        method: 'PATCH',
-        headers: { Authorization: 'Bearer ' + driveToken, 'Content-Type': 'application/json' },
-        body: blob,
-      });
-    } else {
-      // 新規作成
-      const q = `name='data.json' and '${driveFolderIds.root}' in parents and trashed=false`;
-      const found = await driveRequest('GET', `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)`);
-      if (found?.files?.length) {
-        driveDataFileId = found.files[0].id;
-        await fetch(`https://www.googleapis.com/upload/drive/v3/files/${driveDataFileId}?uploadType=media`, {
-          method: 'PATCH',
-          headers: { Authorization: 'Bearer ' + driveToken, 'Content-Type': 'application/json' },
-          body: blob,
-        });
-      } else {
-        const meta = { name: 'data.json', parents: [driveFolderIds.root] };
-        const form = new FormData();
-        form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-        form.append('file', blob);
-        const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
-          method: 'POST',
-          headers: { Authorization: 'Bearer ' + driveToken },
-          body: form,
-        });
-        const data = await res.json().catch(() => ({}));
-        driveDataFileId = data.id || null;
-      }
-    }
+    await driveSheetSave();   // スプレッドシートに保存
   } catch(e) { console.error('driveSaveData:', e); }
 }
+
+// ── Google Sheets にデータを保存 ─────────────────────────────
+// シート構成: 1行目=ヘッダー, 2行目以降=1部品1行
+// 列: projId | projCode | projName | projManager | partId | partName | workdate | oldDesc | newDesc | slotFrames(JSON) | updatedAt
+const SHEET_NAME   = '工事写真データ';
+const SHEET_HEADER = ['projId','projCode','projName','projManager','partId','partName','workdate','oldDesc','newDesc','slotFrames','photos','updatedAt'];
+
+async function driveSheetEnsure() {
+  if (driveSheetId) return driveSheetId;
+  // フォルダ内でスプレッドシートを検索
+  const q = `name='${SHEET_NAME}' and '${driveFolderIds.root}' in parents and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`;
+  const res = await driveRequest('GET', `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)`);
+  if (res?.files?.length) {
+    driveSheetId = res.files[0].id;
+    return driveSheetId;
+  }
+  // なければ作成
+  const created = await driveRequest('POST', 'https://www.googleapis.com/drive/v3/files', {
+    name: SHEET_NAME,
+    mimeType: 'application/vnd.google-apps.spreadsheet',
+    parents: [driveFolderIds.root],
+  });
+  driveSheetId = created?.id || null;
+  if (!driveSheetId) return null;
+  // ヘッダー行を書き込む
+  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${driveSheetId}/values/A1:L1?valueInputOption=RAW`, {
+    method: 'PUT',
+    headers: { Authorization: 'Bearer ' + driveToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values: [SHEET_HEADER] }),
+  });
+  return driveSheetId;
+}
+
+async function driveSheetSave() {
+  const sid = await driveSheetEnsure();
+  if (!sid) return;
+  // 全部品を行に変換
+  const rows = [SHEET_HEADER];
+  for (const proj of projects) {
+    for (const part of (proj.parts || [])) {
+      rows.push([
+        proj.id, proj.code||'', proj.name||'', proj.manager||'',
+        part.id, part.name||'', part.workdate||'',
+        part.oldDesc||'', part.newDesc||'',
+        JSON.stringify(part.slotFrames||{}),
+        JSON.stringify(part.photos||{}),
+        part.updatedAt||'',
+      ]);
+    }
+  }
+  // シートをクリアして全行書き込み
+  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sid}/values/A:L:clear`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + driveToken },
+  });
+  const range = `A1:L${rows.length}`;
+  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sid}/values/${range}?valueInputOption=RAW`, {
+    method: 'PUT',
+    headers: { Authorization: 'Bearer ' + driveToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values: rows }),
+  });
+}
+
+async function driveSheetLoad() {
+  const sid = await driveSheetEnsure();
+  if (!sid) return null;
+  const resp = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sid}/values/A:L`, {
+    headers: { Authorization: 'Bearer ' + driveToken },
+  });
+  if (!resp.ok) return null;
+  const data = await resp.json();
+  const rows = data.values || [];
+  if (rows.length < 2) return null;
+  // ヘッダーをスキップして projects に再構築
+  const projMap = {};
+  for (const row of rows.slice(1)) {
+    const [projId, projCode, projName, projManager, partId, partName, workdate, oldDesc, newDesc, slotFramesJson, photosJson, updatedAt] = row;
+    if (!projId || !partId) continue;
+    if (!projMap[projId]) {
+      projMap[projId] = { id: projId, code: projCode, name: projName, manager: projManager, parts: [] };
+    }
+    let slotFrames = {};
+    let photos = {};
+    try { slotFrames = JSON.parse(slotFramesJson || '{}'); } catch(e){}
+    try { photos = JSON.parse(photosJson || '{}'); } catch(e){}
+    projMap[projId].parts.push({ id: partId, name: partName, workdate, oldDesc, newDesc, slotFrames, photos, updatedAt });
+  }
+  return Object.values(projMap);
+}
+
 
 async function driveLoadData() {
   if (!driveToken) return;
@@ -1390,6 +1602,17 @@ async function driveLoadData() {
   if (!driveFolderIds.root) return;
 
   try {
+    // まずスプレッドシートから読み込む
+    const remote = await driveSheetLoad();
+    if (remote && remote.length > 0) {
+      projects = remote;
+      saveMeta();
+      renderProjects();
+      toast('Driveからデータを復元しました（スプレッドシート）', 'success');
+      driveDownloadAllPhotos(remote).catch(e=>console.warn('photo sync:', e));
+      return;
+    }
+    // スプレッドシートがなければdata.jsonにフォールバック（旧互換）
     const q = `name='data.json' and '${driveFolderIds.root}' in parents and trashed=false`;
     const found = await driveRequest('GET', `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)`);
     if (!found?.files?.length) return;
@@ -1398,14 +1621,57 @@ async function driveLoadData() {
       headers: { Authorization: 'Bearer ' + driveToken },
     });
     if (!resp.ok) return;
-    const remote = await resp.json();
-    if (Array.isArray(remote) && remote.length > 0) {
-      projects = remote;
+    const legacyData = await resp.json();
+    if (Array.isArray(legacyData) && legacyData.length > 0) {
+      projects = legacyData;
       saveMeta();
       renderProjects();
-      toast('Driveからデータを復元しました', 'success');
+      toast('Driveからデータを復元しました（旧形式）', 'success');
+      // スプレッドシートに移行保存
+      await driveSheetSave();
+      driveDownloadAllPhotos(legacyData).catch(e=>console.warn('photo sync:', e));
     }
   } catch(e) { console.error('driveLoadData:', e); }
+}
+
+// ── Drive から写真をダウンロードしてIDBへ保存（他端末同期用）──
+async function driveDownloadAllPhotos(projList) {
+  if (!driveToken || !driveFolderIds.photos) return;
+  let synced = 0;
+  for (const proj of projList) {
+    for (const part of (proj.parts || [])) {
+      for (const slot of ['before','compare','after']) {
+        if (!part.photos?.[slot]) continue;
+        const key = pkey(proj.id, part.id, slot);
+        // IDBにすでにある場合はスキップ
+        const existing = await dbGet(key).catch(() => null);
+        if (existing) continue;
+        // Driveから取得
+        const fname = `${proj.id}_${part.id}_${slot}.jpg`;
+        const q = `name='${fname}' and '${driveFolderIds.photos}' in parents and trashed=false`;
+        const res = await driveRequest('GET',
+          `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)`);
+        if (!res?.files?.length) continue;
+        const fid = res.files[0].id;
+        const imgResp = await fetch(`https://www.googleapis.com/drive/v3/files/${fid}?alt=media`, {
+          headers: { Authorization: 'Bearer ' + driveToken },
+        });
+        if (!imgResp.ok) continue;
+        const blob = await imgResp.blob();
+        const b64  = await new Promise(resolve => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        });
+        await dbPut(key, b64);
+        synced++;
+      }
+    }
+  }
+  if (synced > 0) {
+    renderProjects();
+    toast(`写真 ${synced}枚をDriveから同期しました ☁️`, 'success');
+  }
 }
 
 // ── 写真アップロード ───────────────────────────────────────────
@@ -1447,6 +1713,15 @@ async function driveUploadPhoto(projId, partId, slot, base64data) {
       return data.id || null;
     }
   } catch(e) { console.error('driveUploadPhoto:', e); return null; }
+}
+
+// ── 手動同期ボタン ───────────────────────────────────────────
+async function driveSyncNow() {
+  if (!driveToken) { toast('先にGoogleログインしてください', 'error'); return; }
+  toast('同期中...', 'success');
+  await driveLoadData();
+  const sheetUrl = document.getElementById('drive-sheet-url');
+  if (sheetUrl && driveSheetId) sheetUrl.href = `https://docs.google.com/spreadsheets/d/${driveSheetId}`;
 }
 
 // ── Excel を Drive に保存 ──────────────────────────────────────
