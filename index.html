@@ -377,7 +377,7 @@ input[type=file]{display:none;}
             <button class="btn btn-primary btn-sm" id="save-btn-before" onclick="saveSlot('before')" style="font-size:11px;padding:4px 10px;display:none;">💾 保存</button>
           </div>
           <div class="slot-box" id="slot-before" onclick="triggerSlot('before')"><div class="slot-icon">📷</div><div class="slot-hint">タップして追加</div></div>
-          <input type="file" id="file-before" accept="image/*" capture="environment" onchange="handleFile(event,'before')">
+          <input type="file" id="file-before" accept="image/*" onchange="handleFile(event,'before')">
         </div>
         <div class="slot-wrap">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
@@ -385,7 +385,7 @@ input[type=file]{display:none;}
             <button class="btn btn-primary btn-sm" id="save-btn-compare" onclick="saveSlot('compare')" style="font-size:11px;padding:4px 10px;display:none;">💾 保存</button>
           </div>
           <div class="slot-box" id="slot-compare" onclick="triggerSlot('compare')"><div class="slot-icon">🔄</div><div class="slot-hint">タップして追加</div></div>
-          <input type="file" id="file-compare" accept="image/*" capture="environment" onchange="handleFile(event,'compare')">
+          <input type="file" id="file-compare" accept="image/*" onchange="handleFile(event,'compare')">
         </div>
         <div class="slot-wrap">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
@@ -393,7 +393,7 @@ input[type=file]{display:none;}
             <button class="btn btn-primary btn-sm" id="save-btn-after" onclick="saveSlot('after')" style="font-size:11px;padding:4px 10px;display:none;">💾 保存</button>
           </div>
           <div class="slot-box" id="slot-after" onclick="triggerSlot('after')"><div class="slot-icon">✅</div><div class="slot-hint">タップして追加</div></div>
-          <input type="file" id="file-after" accept="image/*" capture="environment" onchange="handleFile(event,'after')">
+          <input type="file" id="file-after" accept="image/*" onchange="handleFile(event,'after')">
         </div>
       </div>
       <div class="prog-wrap" id="pm-progress" style="display:none;">
