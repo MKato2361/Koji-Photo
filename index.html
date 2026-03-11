@@ -896,9 +896,15 @@ async function exportExcel(projId, partsOverride){
     const resp=await fetch(sUrl.replace(/\/$/,'')+'/api/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:{code:proj.code,name:proj.name},parts:partsWithPhotos,frame_settings:frameSettings})});
     if(!resp.ok){const err=await resp.json().catch(()=>({error:'サーバーエラー'}));throw new Error(err.error);}
     const blob=await resp.blob();const url=URL.createObjectURL(blob);
-    const _cd=resp.headers.get('Content-Disposition')||'';
-    const _fn=(_cd.match(/filename\*=UTF-8''([^;\n]+)/i)||_cd.match(/filename="?([^";\n]+)"?/i)||[])[1]||'工事写真.xlsx';
-    const fname=decodeURIComponent(_fn.trim());
+    // ファイル名をフロント側で生成（CORSでヘッダーが読めない場合の対策）
+    const _firstPart = (partsOverride||proj.parts||[])[0];
+    const _wd = _firstPart?.workdate || '';
+    const _nums = _wd.match(/[0-9]+/g) || [];
+    const _dateStr = _nums.length>=3
+      ? String(_nums[0]).padStart(4,'0')+String(_nums[1]).padStart(2,'0')+String(_nums[2]).padStart(2,'0')
+      : '';
+    const _nameParts = [proj.code||'', proj.name||'', _firstPart?.name||'', _dateStr].filter(Boolean);
+    const fname = _nameParts.join('_').replace(/[\\/:*?"<>|]/g,'_') + '.xlsx';
     const a=document.createElement('a');a.href=url;a.download=fname;a.click();URL.revokeObjectURL(url);
     toast('Excelをダウンロードしました！','success');
     // Drive にも保存
