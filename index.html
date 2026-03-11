@@ -124,6 +124,51 @@ input[type=file]{display:none;}
 .empty-state p{font-size:13px;line-height:1.7;}
 .fab{position:fixed;bottom:calc(62px + var(--safe-bot) + 16px);right:16px;width:52px;height:52px;border-radius:50%;background:var(--acc);color:#000;border:none;font-size:26px;cursor:pointer;z-index:100;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(240,165,0,.4);transition:all .15s;}
 .fab:active{transform:scale(.93);}
+
+/* ── FRAME EDITOR ── */
+.frame-editor-overlay{display:none;position:fixed;inset:0;background:#0a0a0a;z-index:400;flex-direction:column;}
+.frame-editor-overlay.open{display:flex;}
+.fe-hdr{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;
+        padding-top:calc(10px + var(--safe-top));background:rgba(0,0,0,.9);flex-shrink:0;
+        border-bottom:1px solid rgba(255,255,255,.1);}
+.fe-title{font-size:14px;font-weight:700;color:#fff;}
+.fe-hdr-btns{display:flex;gap:6px;}
+.fe-body{flex:1;display:flex;overflow:hidden;}
+/* 左パネル: 枠リスト */
+.fe-list-panel{width:160px;flex-shrink:0;background:#111;border-right:1px solid rgba(255,255,255,.1);
+               display:flex;flex-direction:column;overflow:hidden;}
+.fe-list-hdr{padding:10px 12px;font-size:10px;font-weight:700;color:rgba(255,255,255,.5);
+             letter-spacing:1px;text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,.08);}
+.fe-list{flex:1;overflow-y:auto;padding:6px;}
+.fe-list-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;
+              cursor:pointer;transition:background .12s;margin-bottom:4px;}
+.fe-list-item:active{background:rgba(255,255,255,.06);}
+.fe-list-item.active{background:rgba(240,165,0,.15);border:1px solid rgba(240,165,0,.3);}
+.fe-list-item:not(.active){border:1px solid transparent;}
+.fe-list-dot{width:14px;height:14px;border-radius:3px;flex-shrink:0;}
+.fe-list-label{font-size:12px;color:#e6edf3;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.fe-list-del{width:18px;height:18px;border-radius:4px;background:rgba(248,81,73,.2);
+             border:none;color:#f85149;font-size:13px;cursor:pointer;display:flex;
+             align-items:center;justify-content:center;flex-shrink:0;line-height:1;}
+.fe-add-btn{margin:8px;padding:8px;border-radius:8px;background:rgba(240,165,0,.1);
+            border:1px dashed rgba(240,165,0,.35);color:var(--acc);font-size:12px;font-weight:600;
+            cursor:pointer;text-align:center;transition:background .12s;}
+.fe-add-btn:active{background:rgba(240,165,0,.2);}
+/* 右: Canvas + ツールバー */
+.fe-right{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.fe-canvas-wrap{flex:1;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#111;}
+#fe-canvas{touch-action:none;cursor:crosshair;max-width:100%;max-height:100%;}
+.fe-toolbar{display:flex;align-items:center;gap:8px;padding:10px 14px;
+            padding-bottom:calc(10px + var(--safe-bot));background:rgba(0,0,0,.9);
+            flex-shrink:0;border-top:1px solid rgba(255,255,255,.1);flex-wrap:wrap;}
+.fe-color-btn{width:32px;height:32px;border-radius:50%;border:3px solid transparent;cursor:pointer;transition:all .15s;}
+.fe-color-btn.active{border-color:#fff;transform:scale(1.15);}
+.fe-thickness{display:flex;align-items:center;gap:6px;color:#fff;font-size:12px;}
+.fe-thickness input{width:90px;accent-color:var(--acc);}
+.fe-no-select{padding:20px;text-align:center;color:rgba(255,255,255,.3);font-size:13px;margin:auto;}
+.fe-hint{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);
+         background:rgba(0,0,0,.7);color:rgba(255,255,255,.65);font-size:11px;
+         padding:4px 10px;border-radius:20px;pointer-events:none;white-space:nowrap;}
 </style>
 </head>
 <body>
@@ -151,6 +196,82 @@ input[type=file]{display:none;}
     <div style="background:var(--sur);border:1px solid var(--bdr);border-radius:14px;padding:16px;margin-bottom:12px;">
       <div style="font-size:11px;font-weight:700;color:var(--mut);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;">構成メモ</div>
       <div style="font-size:12px;color:var(--mut);line-height:2.0;">フロント: このHTMLをGitHub Pagesで公開<br>バック: app.py をサーバーで起動<br>DB: db.xlsx（A=管理番号 B=物件名 C=担当者）</div>
+    </div>
+
+    <!-- 写真枠設定カード -->
+    <div style="background:var(--sur);border:1px solid var(--bdr);border-radius:14px;padding:16px;margin-bottom:12px;">
+      <div style="font-size:11px;font-weight:700;color:var(--mut);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">🖼 写真枠設定</div>
+      <div style="font-size:12px;color:var(--mut);margin-bottom:14px;line-height:1.7;">
+        Excel出力時に写真へ枠を描画します。<br>
+        <span style="color:var(--red);">■</span> 作業前・比較（旧）= 赤枠 &nbsp;
+        <span style="color:#FFD700;">■</span> 作業後・比較（新）= 黄枠
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <!-- 枠の太さ -->
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+            <label style="font-size:12px;font-weight:600;color:var(--txt);">枠の太さ</label>
+            <span id="frame-width-val" style="font-size:12px;color:var(--acc);font-weight:700;">20 px</span>
+          </div>
+          <input type="range" id="frame-width" min="4" max="60" step="2" value="20"
+                 oninput="updateFrameLabel('frame-width','frame-width-val','px')"
+                 style="width:100%;accent-color:var(--acc);">
+        </div>
+
+        <!-- 上マージン -->
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+            <label style="font-size:12px;font-weight:600;color:var(--txt);">枠の位置 — 上</label>
+            <span id="frame-top-val" style="font-size:12px;color:var(--acc);font-weight:700;">0 px</span>
+          </div>
+          <input type="range" id="frame-top" min="0" max="200" step="4" value="0"
+                 oninput="updateFrameLabel('frame-top','frame-top-val','px')"
+                 style="width:100%;accent-color:var(--acc);">
+        </div>
+
+        <!-- 下マージン -->
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+            <label style="font-size:12px;font-weight:600;color:var(--txt);">枠の位置 — 下</label>
+            <span id="frame-bot-val" style="font-size:12px;color:var(--acc);font-weight:700;">0 px</span>
+          </div>
+          <input type="range" id="frame-bot" min="0" max="200" step="4" value="0"
+                 oninput="updateFrameLabel('frame-bot','frame-bot-val','px')"
+                 style="width:100%;accent-color:var(--acc);">
+        </div>
+
+        <!-- 左マージン -->
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+            <label style="font-size:12px;font-weight:600;color:var(--txt);">枠の位置 — 左</label>
+            <span id="frame-left-val" style="font-size:12px;color:var(--acc);font-weight:700;">0 px</span>
+          </div>
+          <input type="range" id="frame-left" min="0" max="200" step="4" value="0"
+                 oninput="updateFrameLabel('frame-left','frame-left-val','px')"
+                 style="width:100%;accent-color:var(--acc);">
+        </div>
+
+        <!-- 右マージン -->
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+            <label style="font-size:12px;font-weight:600;color:var(--txt);">枠の位置 — 右</label>
+            <span id="frame-right-val" style="font-size:12px;color:var(--acc);font-weight:700;">0 px</span>
+          </div>
+          <input type="range" id="frame-right" min="0" max="200" step="4" value="0"
+                 oninput="updateFrameLabel('frame-right','frame-right-val','px')"
+                 style="width:100%;accent-color:var(--acc);">
+        </div>
+      </div>
+
+      <!-- プレビュー -->
+      <div style="margin-top:16px;position:relative;background:var(--sur2);border:1px solid var(--bdr);border-radius:10px;overflow:hidden;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;">
+        <canvas id="frame-preview" style="width:100%;height:100%;object-fit:contain;"></canvas>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+        <button class="btn btn-primary btn-sm" onclick="saveFrameSettings()">💾 保存</button>
+        <button class="btn btn-secondary btn-sm" onclick="resetFrameSettings()">リセット</button>
+      </div>
     </div>
 
     <!-- Google Drive 連携カード -->
@@ -249,6 +370,50 @@ input[type=file]{display:none;}
     </div>
   </div>
 </div>
+
+<!-- 写真枠エディター（複数枠対応） -->
+<div class="frame-editor-overlay" id="frame-editor">
+  <div class="fe-hdr">
+    <div class="fe-title" id="fe-title">✏️ 枠を編集</div>
+    <div class="fe-hdr-btns">
+      <button class="btn btn-secondary btn-sm" onclick="feSetDefault()">デフォルトに設定</button>
+      <button class="btn btn-primary btn-sm" onclick="feApply()">✅ 適用</button>
+      <button class="btn btn-secondary btn-sm" onclick="feClose()">×</button>
+    </div>
+  </div>
+  <div class="fe-body">
+    <!-- 左: 枠リスト -->
+    <div class="fe-list-panel">
+      <div class="fe-list-hdr">枠一覧</div>
+      <div class="fe-list" id="fe-list"></div>
+      <div class="fe-add-btn" onclick="feAddFrame()">＋ 枠を追加</div>
+    </div>
+    <!-- 右: Canvas + ツールバー -->
+    <div class="fe-right">
+      <div class="fe-canvas-wrap">
+        <canvas id="fe-canvas"></canvas>
+        <div class="fe-hint" id="fe-hint">枠の辺をドラッグして調整</div>
+        <div class="fe-no-select" id="fe-no-select" style="display:none;">
+          左の「＋ 枠を追加」から<br>枠を追加してください
+        </div>
+      </div>
+      <div class="fe-toolbar" id="fe-toolbar">
+        <div style="color:rgba(255,255,255,.5);font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;">色</div>
+        <button class="fe-color-btn" id="fe-btn-red"    onclick="feSetColor('red')"
+                style="background:#FF3C3C;" title="赤"></button>
+        <button class="fe-color-btn" id="fe-btn-yellow" onclick="feSetColor('yellow')"
+                style="background:#FFD700;" title="黄"></button>
+        <div style="width:1px;height:28px;background:rgba(255,255,255,.15);margin:0 2px;"></div>
+        <div class="fe-thickness">
+          <span>太さ</span>
+          <input type="range" id="fe-width" min="2" max="80" step="2" value="20"
+                 oninput="document.getElementById('fe-width-val').textContent=this.value+'px';feOnWidthChange()">
+          <span id="fe-width-val" style="min-width:36px;">20px</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="loading" id="loading"><div class="spinner"></div><div class="loading-msg" id="loading-msg">処理中...</div></div>
 <div class="toast" id="toast"><span id="t-icon">✅</span><span id="t-msg"></span></div>
 <script>
@@ -286,6 +451,8 @@ let projects=JSON.parse(localStorage.getItem('kp4-projects')||'[]');
 let serverUrl=localStorage.getItem('kp3-server')||(location.origin.includes('localhost')?location.origin:'');
 let editProjId=null,editPartProjId=null,editPartId=null;
 let slotData={before:null,compare:null,after:null};
+// 各スロットの枠設定（エディターで個別調整）
+let slotFrames={before:null,compare:null,after:null};
 let currentSlot=null,qrStream=null,qrTimer=null;
 
 function saveMeta(){
@@ -316,6 +483,7 @@ function showPage(name,el){
   if(el)el.classList.add('active');
   document.getElementById('fab-btn').style.display=name==='list'?'flex':'none';
   if(name==='list')renderProjects();
+  if(name==='settings')setTimeout(drawFramePreview,50);
 }
 
 function renderProjects(){
@@ -460,6 +628,7 @@ async function openPartSheet(projId,partId){
   document.getElementById('part-sheet-title').textContent=isNew?'🔧 部品追加':'🔧 部品編集';
   document.getElementById('part-delete-btn').style.display=isNew?'none':'inline-flex';
   slotData={before:null,compare:null,after:null};
+  slotFrames={before:null,compare:null,after:null};
   if(!isNew){
     const proj=projects.find(p=>p.id===projId);
     const part=(proj?.parts||[]).find(p=>p.id===partId)||{};
@@ -467,6 +636,13 @@ async function openPartSheet(projId,partId){
     document.getElementById('pm-old').value=part.oldDesc||'■内：旧部品';
     document.getElementById('pm-new').value=part.newDesc||'■内：新部品';
     document.getElementById('pm-workdate').value=part.workdate||todayJST();
+    // 枠設定を復元
+    const pf=part.slotFrames||{};
+    slotFrames={
+      before:  pf.before  || defaultSlotFrame('before'),
+      compare: pf.compare || defaultSlotFrame('compare'),
+      after:   pf.after   || defaultSlotFrame('after'),
+    };
     for(const slot of['before','compare','after']){
       if(part.photos&&part.photos[slot]){const b64=await dbGet(pkey(projId,partId,slot));slotData[slot]=b64;if(b64)setSlotImg(slot,b64);else clearSlotUI(slot);}
       else clearSlotUI(slot);
@@ -501,6 +677,7 @@ async function savePart(){
     workdate:document.getElementById('pm-workdate').value||todayJST(),
     // photos はフラグのみ — base64 は localStorage に入れない
     photos:{before:!!slotData.before,compare:!!slotData.compare,after:!!slotData.after},
+    slotFrames:{...slotFrames},
     updatedAt:new Date().toISOString(),
   };
   if(editPartId){const i=proj.parts.findIndex(p=>p.id===editPartId);if(i!==-1)proj.parts[i]=part;else proj.parts.push(part);}
@@ -567,7 +744,22 @@ function compressImage(dataUrl, maxMB){
     img.src=dataUrl;
   });
 }
-function setSlotImg(slot,url){const el=document.getElementById('slot-'+slot);el.classList.add('has-photo');el.innerHTML=`<img src="${url}"><button class="slot-remove" onclick="event.stopPropagation();removeSlot('${slot}')">×</button><div class="slot-overlay"><div class="slot-change-btn" onclick="event.stopPropagation();triggerSlot('${slot}')">📷 変更</div></div>`;el.onclick=()=>{};}
+function setSlotImg(slot,url){
+  const el=document.getElementById('slot-'+slot);
+  el.classList.add('has-photo');
+  const fr=slotFrames[slot];
+  const hasFr=fr&&fr.color!=='none';
+  el.innerHTML=`<img src="${url}">
+    <button class="slot-remove" onclick="event.stopPropagation();removeSlot('${slot}')">×</button>
+    <div class="slot-overlay" style="opacity:1;background:transparent;padding:6px;gap:5px;flex-direction:column;align-items:flex-end;justify-content:flex-end;">
+      <button class="slot-change-btn" onclick="event.stopPropagation();openFrameEditor('${slot}')"
+              style="background:${hasFr?(fr.color==='red'?'rgba(255,60,60,.85)':'rgba(255,215,0,.85)'):'rgba(60,60,60,.85)'};">
+        ✏️ 枠
+      </button>
+      <button class="slot-change-btn" onclick="event.stopPropagation();triggerSlot('${slot}')">📷 変更</button>
+    </div>`;
+  el.onclick=()=>{};
+}
 function removeSlot(slot){slotData[slot]=null;clearSlotUI(slot);updateProgress();}
 function clearSlotUI(slot){const icons={before:'📷',compare:'🔄',after:'✅'};const el=document.getElementById('slot-'+slot);el.classList.remove('has-photo');el.innerHTML=`<div class="slot-icon">${icons[slot]}</div><div class="slot-hint">タップして追加</div>`;el.onclick=()=>triggerSlot(slot);}
 function updateProgress(){const cnt=['before','compare','after'].filter(s=>slotData[s]).length;const w=document.getElementById('pm-progress');if(cnt>0){w.style.display='block';document.getElementById('pm-prog-count').textContent=cnt+' / 3';document.getElementById('pm-prog-fill').style.width=(cnt/3*100)+'%';}else w.style.display='none';}
@@ -583,10 +775,10 @@ async function exportExcel(projId){
     const partsWithPhotos=await Promise.all((proj.parts||[]).map(async part=>{
       const photos={};
       for(const slot of['before','compare','after'])if(part.photos&&part.photos[slot])photos[slot]=await dbGet(pkey(projId,part.id,slot));
-      return{...part,photos,workdate:toWorkdateStr(part.workdate||'')};
+      return{...part,photos,workdate:toWorkdateStr(part.workdate||''),slotFrames:part.slotFrames||{}};
     }));
     document.getElementById('loading-msg').textContent='Excelを生成中...';
-    const resp=await fetch(sUrl.replace(/\/$/,'')+'/api/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:{code:proj.code,name:proj.name},parts:partsWithPhotos})});
+    const resp=await fetch(sUrl.replace(/\/$/,'')+'/api/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:{code:proj.code,name:proj.name},parts:partsWithPhotos,frame_settings:frameSettings})});
     if(!resp.ok){const err=await resp.json().catch(()=>({error:'サーバーエラー'}));throw new Error(err.error);}
     const blob=await resp.blob();const url=URL.createObjectURL(blob);
     const fname=decodeURIComponent(resp.headers.get('Content-Disposition')?.match(/filename\*?=(?:UTF-8'')?(.+)/i)?.[1]||'工事写真.xlsx');
@@ -622,6 +814,413 @@ async function resetAll(){
   await new Promise((ok,ng)=>{const tx=db.transaction('ph','readwrite');tx.objectStore('ph').clear();tx.oncomplete=ok;tx.onerror=ng;});
   projects=[];renderProjects();toast('リセットしました','success');
 }
+
+// ================================================================
+// 写真枠設定
+// ================================================================
+const FRAME_DEFAULT = {width:20, top:0, bot:0, left:0, right:0};
+let frameSettings = JSON.parse(localStorage.getItem('frame-settings') || 'null') || {...FRAME_DEFAULT};
+
+function initFrameSettings(){
+  const fs = frameSettings;
+  const fields = ['width','top','bot','left','right'];
+  const ids    = ['frame-width','frame-top','frame-bot','frame-left','frame-right'];
+  const vals   = ['frame-width-val','frame-top-val','frame-bot-val','frame-left-val','frame-right-val'];
+  fields.forEach((f,i)=>{
+    const el = document.getElementById(ids[i]);
+    const vl = document.getElementById(vals[i]);
+    if(!el) return;
+    el.value = fs[f];
+    if(vl) vl.textContent = fs[f] + ' px';
+  });
+  drawFramePreview();
+}
+function updateFrameLabel(sliderId, labelId, unit){
+  const v = document.getElementById(sliderId).value;
+  document.getElementById(labelId).textContent = v + ' ' + unit;
+  drawFramePreview();
+}
+function saveFrameSettings(){
+  frameSettings = {
+    width: +document.getElementById('frame-width').value,
+    top:   +document.getElementById('frame-top').value,
+    bot:   +document.getElementById('frame-bot').value,
+    left:  +document.getElementById('frame-left').value,
+    right: +document.getElementById('frame-right').value,
+  };
+  localStorage.setItem('frame-settings', JSON.stringify(frameSettings));
+  toast('枠設定を保存しました', 'success');
+}
+function resetFrameSettings(){
+  frameSettings = {...FRAME_DEFAULT};
+  localStorage.setItem('frame-settings', JSON.stringify(frameSettings));
+  initFrameSettings();
+  toast('枠設定をリセットしました', 'success');
+}
+function drawFramePreview(){
+  const cv = document.getElementById('frame-preview');
+  if(!cv) return;
+  const W=320, H=240;
+  cv.width=W; cv.height=H;
+  const ctx = cv.getContext('2d');
+  // 背景
+  ctx.fillStyle='#21262d'; ctx.fillRect(0,0,W,H);
+  // 写真エリア（ダミー）
+  ctx.fillStyle='#30363d'; ctx.fillRect(10,10,W-20,H-20);
+  ctx.fillStyle='#8b949e'; ctx.font='12px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('写真プレビュー', W/2, H/2);
+
+  const fw  = +document.getElementById('frame-width')?.value || 20;
+  const ft  = +document.getElementById('frame-top')?.value   || 0;
+  const fb  = +document.getElementById('frame-bot')?.value   || 0;
+  const fl  = +document.getElementById('frame-left')?.value  || 0;
+  const fr  = +document.getElementById('frame-right')?.value || 0;
+
+  // スケーリング（プレビューは 1/10 スケール）
+  const scale = 0.1;
+  const sw = Math.max(2, fw*scale);
+  const half = sw/2;
+  const x1 = 10 + fl*scale + half;
+  const y1 = 10 + ft*scale + half;
+  const x2 = W-10 - fr*scale - half;
+  const y2 = H-10 - fb*scale - half;
+
+  // 赤枠（左側 = 作業前）
+  ctx.strokeStyle='#FF4444'; ctx.lineWidth=sw;
+  ctx.strokeRect(x1, y1, (x2-x1)/2-2, y2-y1);
+  // 黄枠（右側 = 作業後）
+  ctx.strokeStyle='#FFD700'; ctx.lineWidth=sw;
+  ctx.strokeRect(x1+(x2-x1)/2+2, y1, (x2-x1)/2-2, y2-y1);
+
+  // ラベル
+  ctx.fillStyle='#FF4444'; ctx.font='bold 10px sans-serif'; ctx.textAlign='left';
+  ctx.fillText('赤枠', x1+4, y1+14);
+  ctx.fillStyle='#FFD700'; ctx.textAlign='right';
+  ctx.fillText('黄枠', x2-4, y1+14);
+}
+
+
+// ================================================================
+// 写真枠エディター（複数枠対応）
+// ================================================================
+let feSlot    = null;
+let feImg     = null;
+let feCanvas  = null;
+let feCtx     = null;
+
+// 枠リスト（配列） - 編集中スロットの枠一覧
+// 各枠: {id, color:'red'|'yellow', width, top, bot, left, right}
+let feFrames  = [];
+let feSelId   = null;   // 選択中の枠ID
+
+const FE_HIT = 14;
+let feDrag = null;
+
+// ── ユーティリティ ──────────────────────────────────────────────
+function feNewId(){ return 'f_'+Date.now()+'_'+Math.random().toString(36).slice(2,5); }
+
+function feColorHex(color){ return color==='yellow'?'#FFD700':'#FF3C3C'; }
+
+function defaultSlotFrame(slot){
+  const fs = frameSettings;
+  const color = slot==='after'?'yellow':'red';
+  return [{id:feNewId(), color, width:fs.width, top:fs.top, bot:fs.bot, left:fs.left, right:fs.right}];
+}
+
+function feSelFrame(){ return feFrames.find(f=>f.id===feSelId)||null; }
+
+// ── 枠リストUI描画 ───────────────────────────────────────────────
+function feRenderList(){
+  const list = document.getElementById('fe-list');
+  if(!list) return;
+  list.innerHTML = feFrames.map((fr,i)=>`
+    <div class="fe-list-item${fr.id===feSelId?' active':''}" onclick="feSelectFrame('${fr.id}')">
+      <div class="fe-list-dot" style="background:${feColorHex(fr.color)};"></div>
+      <div class="fe-list-label">枠 ${i+1}（${fr.color==='red'?'赤':'黄'}）</div>
+      <button class="fe-list-del" onclick="event.stopPropagation();feDeleteFrame('${fr.id}')">×</button>
+    </div>`).join('');
+
+  // ツールバーの表示制御
+  const toolbar = document.getElementById('fe-toolbar');
+  const noSel   = document.getElementById('fe-no-select');
+  const canvas  = document.getElementById('fe-canvas');
+  if(feSelId && feFrames.length){
+    if(toolbar) toolbar.style.display='flex';
+    if(noSel)   noSel.style.display='none';
+    if(canvas)  canvas.style.display='block';
+  } else {
+    if(toolbar) toolbar.style.display='none';
+    if(noSel)   noSel.style.display = feFrames.length?'none':'flex';
+    if(canvas)  canvas.style.display = feFrames.length?'block':'none';
+  }
+
+  // ツールバーの色・太さUIを選択中枠に同期
+  const fr = feSelFrame();
+  if(fr){
+    document.getElementById('fe-width').value = fr.width;
+    document.getElementById('fe-width-val').textContent = fr.width+'px';
+    feUpdateColorBtns(fr.color);
+  }
+}
+
+function feSelectFrame(id){
+  feSelId = id;
+  feRenderList();
+  feRedraw();
+}
+
+function feAddFrame(){
+  const colors=['red','yellow'];
+  // 交互に色を選ぶ
+  const lastColor = feFrames.length ? feFrames[feFrames.length-1].color : 'none';
+  const color = lastColor==='red'?'yellow':'red';
+  const fs = frameSettings;
+  const fr = {id:feNewId(), color, width:fs.width,
+              top:fs.top, bot:fs.bot, left:fs.left, right:fs.right};
+  feFrames.push(fr);
+  feSelId = fr.id;
+  feRenderList();
+  feRedraw();
+}
+
+function feDeleteFrame(id){
+  feFrames = feFrames.filter(f=>f.id!==id);
+  if(feSelId===id) feSelId = feFrames.length ? feFrames[feFrames.length-1].id : null;
+  feRenderList();
+  feRedraw();
+}
+
+// ── エディター開閉 ───────────────────────────────────────────────
+function openFrameEditor(slot){
+  if(!slotData[slot]){toast('先に写真を追加してください','error');return;}
+  feSlot   = slot;
+  feCanvas = document.getElementById('fe-canvas');
+  feCtx    = feCanvas.getContext('2d');
+
+  // 保存済みの枠配列を読み込む（なければデフォルト1枠）
+  const saved = slotFrames[slot];
+  if(Array.isArray(saved) && saved.length){
+    feFrames = saved.map(f=>({...f}));
+  } else if(saved && typeof saved==='object' && !Array.isArray(saved)){
+    // 旧形式（単一オブジェクト）を配列に変換
+    feFrames = saved.color!=='none' ? [{...saved, id:feNewId()}] : [];
+  } else {
+    feFrames = defaultSlotFrame(slot);
+  }
+  feSelId = feFrames.length ? feFrames[0].id : null;
+
+  const names={before:'① 交換前',compare:'② 新旧比較',after:'③ 交換後'};
+  document.getElementById('fe-title').textContent = `✏️ 枠を編集 — ${names[slot]||slot}`;
+  document.getElementById('fe-hint').textContent  = '枠の辺をドラッグして調整';
+
+  feImg = new Image();
+  feImg.onload = ()=>{ feResizeCanvas(); feRenderList(); feRedraw(); };
+  feImg.src = slotData[slot];
+
+  document.getElementById('frame-editor').classList.add('open');
+  document.body.style.overflow='hidden';
+
+  feCanvas.addEventListener('pointerdown',  fePointerDown);
+  feCanvas.addEventListener('pointermove',  fePointerMove);
+  feCanvas.addEventListener('pointerup',    fePointerUp);
+  feCanvas.addEventListener('pointercancel',fePointerUp);
+}
+
+function feClose(){
+  document.getElementById('frame-editor').classList.remove('open');
+  document.body.style.overflow='';
+  feCanvas.removeEventListener('pointerdown',  fePointerDown);
+  feCanvas.removeEventListener('pointermove',  fePointerMove);
+  feCanvas.removeEventListener('pointerup',    fePointerUp);
+  feCanvas.removeEventListener('pointercancel',fePointerUp);
+  feSlot=null; feImg=null; feDrag=null;
+}
+
+function feApply(){
+  slotFrames[feSlot] = feFrames.map(f=>({...f}));
+  if(slotData[feSlot]) setSlotImg(feSlot, slotData[feSlot]);
+  feClose();
+  toast('枠設定を適用しました','success');
+}
+
+function feSetDefault(){
+  const fr = feSelFrame();
+  if(!fr){ toast('枠を選択してください','error'); return; }
+  frameSettings={width:fr.width,top:fr.top,bot:fr.bot,left:fr.left,right:fr.right};
+  localStorage.setItem('frame-settings',JSON.stringify(frameSettings));
+  initFrameSettings();
+  toast('デフォルトに保存しました','success');
+}
+
+function feSetColor(color){
+  const fr = feSelFrame();
+  if(!fr) return;
+  fr.color = color;
+  feUpdateColorBtns(color);
+  feRenderList();
+  feRedraw();
+}
+
+function feOnWidthChange(){
+  const fr = feSelFrame();
+  if(!fr) return;
+  fr.width = +document.getElementById('fe-width').value;
+  document.getElementById('fe-width-val').textContent = fr.width+'px';
+  feRedraw();
+}
+
+function feUpdateColorBtns(color){
+  document.getElementById('fe-btn-red')?.classList.toggle('active',    color==='red');
+  document.getElementById('fe-btn-yellow')?.classList.toggle('active', color==='yellow');
+}
+
+// ── Canvas ─────────────────────────────────────────────────────
+function feResizeCanvas(){
+  if(!feImg) return;
+  const wrap=feCanvas.parentElement;
+  const ww=wrap.clientWidth, wh=wrap.clientHeight;
+  const ir=feImg.naturalWidth/feImg.naturalHeight;
+  const wr=ww/wh;
+  let cw,ch;
+  if(ir>wr){cw=ww;ch=Math.round(ww/ir);}
+  else{ch=wh;cw=Math.round(wh*ir);}
+  feCanvas.width  = feImg.naturalWidth;
+  feCanvas.height = feImg.naturalHeight;
+  feCanvas.style.width  = cw+'px';
+  feCanvas.style.height = ch+'px';
+}
+
+function feClientToImg(cx,cy){
+  const r=feCanvas.getBoundingClientRect();
+  return {x:(cx-r.left)*feCanvas.width/r.width, y:(cy-r.top)*feCanvas.height/r.height};
+}
+
+function feEdgeCoords(fr){
+  const W=feCanvas.width, H=feCanvas.height;
+  const half=fr.width/2;
+  return {
+    top:   fr.top+half,
+    bot:   H-fr.bot-half,
+    left:  fr.left+half,
+    right: W-fr.right-half,
+  };
+}
+
+function feRedraw(){
+  if(!feImg||!feCtx) return;
+  const W=feCanvas.width, H=feCanvas.height;
+  feCtx.clearRect(0,0,W,H);
+  feCtx.drawImage(feImg,0,0);
+
+  feFrames.forEach(fr=>{
+    const ec = feEdgeCoords(fr);
+    const col = feColorHex(fr.color);
+    const isSel = fr.id===feSelId;
+    const hw = fr.width;
+
+    feCtx.strokeStyle = col;
+    feCtx.lineWidth   = hw;
+    // 選択中は少し明るく点線外枠も追加
+    if(isSel){
+      feCtx.globalAlpha=1.0;
+    } else {
+      feCtx.globalAlpha=0.55;
+    }
+    feCtx.strokeRect(ec.left, ec.top, ec.right-ec.left, ec.bot-ec.top);
+    feCtx.globalAlpha=1.0;
+
+    // 選択中のみハンドルを描画
+    if(isSel){
+      const hs = Math.max(18, hw*1.6);
+      const ht = hs/2;
+      const mx=(ec.left+ec.right)/2, my=(ec.top+ec.bot)/2;
+      feCtx.fillStyle=col;
+      [[mx-ht,ec.top-ht],[mx-ht,ec.bot-ht],[ec.left-ht,my-ht],[ec.right-ht,my-ht]]
+        .forEach(([x,y])=>feCtx.fillRect(x,y,hs,hs));
+    }
+  });
+}
+
+// ── ヒットテスト（選択中枠のみ） ─────────────────────────────────
+function feHitTest(ix,iy){
+  const fr=feSelFrame(); if(!fr) return {fr:null,edge:null};
+  const ec=feEdgeCoords(fr);
+  const scale=feCanvas.width/feCanvas.getBoundingClientRect().width;
+  const hit=FE_HIT*scale;
+  const hs=Math.max(18,fr.width*1.6)/2;
+  const mx=(ec.left+ec.right)/2, my=(ec.top+ec.bot)/2;
+
+  // ハンドル優先
+  if(Math.abs(ix-mx)<hs+hit && Math.abs(iy-ec.top)<hs+hit)   return {fr,edge:'top'};
+  if(Math.abs(ix-mx)<hs+hit && Math.abs(iy-ec.bot)<hs+hit)   return {fr,edge:'bot'};
+  if(Math.abs(iy-my)<hs+hit && Math.abs(ix-ec.left)<hs+hit)  return {fr,edge:'left'};
+  if(Math.abs(iy-my)<hs+hit && Math.abs(ix-ec.right)<hs+hit) return {fr,edge:'right'};
+  // 辺全体
+  const t=Math.max(hit,fr.width/2+hit);
+  if(Math.abs(iy-ec.top)<t   && ix>ec.left-hit&&ix<ec.right+hit) return {fr,edge:'top'};
+  if(Math.abs(iy-ec.bot)<t   && ix>ec.left-hit&&ix<ec.right+hit) return {fr,edge:'bot'};
+  if(Math.abs(ix-ec.left)<t  && iy>ec.top-hit &&iy<ec.bot+hit)   return {fr,edge:'left'};
+  if(Math.abs(ix-ec.right)<t && iy>ec.top-hit &&iy<ec.bot+hit)   return {fr,edge:'right'};
+  return {fr:null,edge:null};
+}
+
+// 別の枠をタップで選択
+function feHitFrame(ix,iy){
+  for(const fr of [...feFrames].reverse()){
+    const ec=feEdgeCoords(fr);
+    const t=Math.max(FE_HIT*2,fr.width);
+    if( (Math.abs(iy-ec.top)<t||Math.abs(iy-ec.bot)<t||Math.abs(ix-ec.left)<t||Math.abs(ix-ec.right)<t)
+        && ix>ec.left-t&&ix<ec.right+t&&iy>ec.top-t&&iy<ec.bot+t )
+      return fr;
+  }
+  return null;
+}
+
+function fePointerDown(e){
+  e.preventDefault();
+  const {x,y}=feClientToImg(e.clientX,e.clientY);
+  const {fr,edge}=feHitTest(x,y);
+  if(edge){
+    feCanvas.setPointerCapture(e.pointerId);
+    const startVal={top:fr.top,bot:fr.bot,left:fr.left,right:fr.right}[edge];
+    feDrag={fr,edge,startX:x,startY:y,startVal};
+    document.getElementById('fe-hint').textContent='ドラッグして調整中…';
+  } else {
+    // 別の枠をタップで選択
+    const hit=feHitFrame(x,y);
+    if(hit && hit.id!==feSelId){ feSelId=hit.id; feRenderList(); feRedraw(); }
+  }
+}
+
+function fePointerMove(e){
+  if(!feDrag){
+    const {x,y}=feClientToImg(e.clientX,e.clientY);
+    const {edge}=feHitTest(x,y);
+    feCanvas.style.cursor=edge?({top:'ns-resize',bot:'ns-resize',left:'ew-resize',right:'ew-resize'}[edge]||'crosshair'):'crosshair';
+    return;
+  }
+  e.preventDefault();
+  const {x,y}=feClientToImg(e.clientX,e.clientY);
+  const {fr,edge,startX,startY,startVal}=feDrag;
+  const dx=x-startX, dy=y-startY;
+  switch(edge){
+    case 'top':   fr.top   = Math.max(0,startVal+dy);  break;
+    case 'bot':   fr.bot   = Math.max(0,startVal-dy);  break;
+    case 'left':  fr.left  = Math.max(0,startVal+dx);  break;
+    case 'right': fr.right = Math.max(0,startVal-dx);  break;
+  }
+  feRedraw();
+}
+
+function fePointerUp(e){
+  if(!feDrag) return;
+  const fr=feDrag.fr;
+  document.getElementById('fe-hint').textContent=
+    `上:${Math.round(fr.top)}  下:${Math.round(fr.bot)}  左:${Math.round(fr.left)}  右:${Math.round(fr.right)}  太さ:${fr.width}px`;
+  feDrag=null;
+}
+
+window.addEventListener('resize',()=>{ if(feImg){feResizeCanvas();feRedraw();} });
 
 // ================================================================
 // GOOGLE DRIVE 連携
@@ -875,6 +1474,7 @@ async function driveUploadExcel(blob, filename) {
 const su=localStorage.getItem('kp3-server')||'';
 if(su){document.getElementById('server-url').value=su;serverUrl=su;}
 initDrive();
+initFrameSettings();
 
 // 旧バージョンのゴミキーを削除
 ['kp3-project','kp3-parts'].forEach(k=>localStorage.removeItem(k));
