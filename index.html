@@ -301,6 +301,7 @@ input[type=file]{display:none;}
         <button class="btn btn-primary btn-sm" onclick="saveDriveClientId()">保存</button>
         <button class="btn btn-secondary btn-sm" id="drive-login-btn" onclick="driveLogin()" style="display:none;">🔑 Googleでログイン</button>
         <button class="btn btn-danger btn-sm" id="drive-logout-btn" onclick="driveLogout()" style="display:none;">ログアウト</button>
+        <button class="btn btn-secondary btn-sm" id="drive-reauth-btn" onclick="driveReAuth()" style="display:none;font-size:11px;">🔄 再認証</button>
       </div>
       <div id="drive-status" style="margin-top:10px;font-size:12px;color:var(--mut);">— 未設定 —</div>
       <div id="drive-sheet-link" style="margin-top:8px;display:none;">
@@ -1428,6 +1429,15 @@ function saveDriveClientId() {
 }
 
 // ── OAuth ログイン ─────────────────────────────────────────────
+function driveReAuth() {
+  // 現在のトークンを破棄して再ログイン（新スコープを取得するため）
+  driveToken = null;
+  localStorage.removeItem('drive-token');
+  localStorage.removeItem('drive-token-expiry');
+  toast('再認証します...', 'success');
+  setTimeout(() => driveLogin(), 300);
+}
+
 function driveLogin() {
   const clientId = localStorage.getItem('drive-client-id') || '';
   if (!clientId) { toast('先にClient IDを保存してください', 'error'); return; }
@@ -1468,6 +1478,8 @@ function updateDriveStatus(connected) {
     st.innerHTML = '<span style="color:var(--grn)">✅ 接続済み — 写真・データを自動同期中</span>';
     loginBtn.style.display  = 'none';
     logoutBtn.style.display = 'inline-flex';
+    const reAuthBtn = document.getElementById('drive-reauth-btn');
+    if (reAuthBtn) reAuthBtn.style.display = 'inline-flex';
     // スプレッドシートリンクを更新
     const sheetLink = document.getElementById('drive-sheet-link');
     const sheetUrl  = document.getElementById('drive-sheet-url');
@@ -1547,7 +1559,10 @@ async function driveSheetEnsure() {
     parents: [driveFolderIds.root],
   });
   driveSheetId = created?.id || null;
-  if (!driveSheetId) return null;
+  if (!driveSheetId) {
+    console.error('driveSheetEnsure: failed to create sheet. Check spreadsheets scope.');
+    return null;
+  }
   // ヘッダー行を書き込む
   await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${driveSheetId}/values/A1:L1?valueInputOption=RAW`, {
     method: 'PUT',
@@ -1559,7 +1574,7 @@ async function driveSheetEnsure() {
 
 async function driveSheetSave() {
   const sid = await driveSheetEnsure();
-  if (!sid) return;
+  if (!sid) { console.warn('driveSheetSave: no sheet ID'); return; }
   // 全部品を行に変換
   const rows = [SHEET_HEADER];
   for (const proj of projects) {
@@ -1574,17 +1589,31 @@ async function driveSheetSave() {
       ]);
     }
   }
-  // シートをクリアして全行書き込み
-  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sid}/values/A:L:clear`, {
+  // シートをクリア
+  const clearResp = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sid}/values/A:L/clear`, {
     method: 'POST',
-    headers: { Authorization: 'Bearer ' + driveToken },
+    headers: { Authorization: 'Bearer ' + driveToken, 'Content-Type': 'application/json' },
   });
+  if (!clearResp.ok) {
+    const err = await clearResp.text();
+    console.error('driveSheetSave clear error:', clearResp.status, err);
+    // 403はスコープ不足 → 再ログインを促す
+    if (clearResp.status === 403) toast('スプレッドシートへの書き込みにはGoogleの再ログインが必要です', 'error');
+    return;
+  }
+  // 全行書き込み
   const range = `A1:L${rows.length}`;
-  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sid}/values/${range}?valueInputOption=RAW`, {
+  const writeResp = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sid}/values/${range}?valueInputOption=RAW`, {
     method: 'PUT',
     headers: { Authorization: 'Bearer ' + driveToken, 'Content-Type': 'application/json' },
     body: JSON.stringify({ values: rows }),
   });
+  if (!writeResp.ok) {
+    const err = await writeResp.text();
+    console.error('driveSheetSave write error:', writeResp.status, err);
+    return;
+  }
+  console.log('driveSheetSave: saved', rows.length-1, 'parts to sheet', sid);
 }
 
 async function driveSheetLoad() {
