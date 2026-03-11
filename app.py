@@ -16,7 +16,7 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024
 
 # GitHub Pages など別オリジンからのアクセスを許可
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+CORS(app, resources={r"/api/*": {"origins": "*", "expose_headers": ["Content-Disposition"]}})
 
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), 'template.xlsx')
 DB_PATH       = os.path.join(os.path.dirname(__file__), 'db.xlsx')
