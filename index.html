@@ -58,8 +58,7 @@ input[type=file]{display:none;}
 .proj-chevron{color:var(--mut);font-size:18px;transition:transform .22s;flex-shrink:0;}
 .proj-chevron.open{transform:rotate(90deg);}
 .proj-body{display:none;border-top:1px solid var(--bdr);}
-.proj-card.expanded .proj-body{display:block;}
-.parts-sec-hdr{padding:10px 16px;display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.015);}
+.proj-card.expanded .parts-sec-hdr{padding:10px 16px;display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.015);}
 .parts-sec-title{font-size:11px;font-weight:700;color:var(--mut);letter-spacing:.8px;text-transform:uppercase;}
 .part-row{display:flex;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid var(--bdr);cursor:pointer;transition:background .15s;}
 .part-row:active{background:rgba(255,255,255,.03);}
@@ -587,19 +586,17 @@ function partRowHtml(projId,part){
     :`<div class="part-thumb" style="opacity:.3">${icons[i]}</div>`).join('');
   const badge=done?`<span class="part-badge badge-done">完成</span>`:`<span class="part-badge badge-wip">${cnt}/3</span>`;
   const wd=part.workdate?`<span style="font-size:11px;color:var(--mut);display:block;margin-top:2px;">📅${part.workdate}</span>`:'';
-  const chkId=`chk-${projId}-${part.id}`;
   return `<div class="part-row" style="cursor:default;gap:8px;">
-    <label for="${chkId}" style="display:flex;align-items:center;padding:4px;cursor:pointer;flex-shrink:0;" onclick="event.stopPropagation()">
-      <input type="checkbox" id="${chkId}" class="part-chk" data-proj="${projId}" data-part="${part.id}"
-             style="width:20px;height:20px;cursor:pointer;accent-color:var(--acc);">
-    </label>
+    <input type="checkbox" class="part-chk" data-proj="${projId}" data-part="${part.id}"
+           style="width:22px;height:22px;flex-shrink:0;cursor:pointer;accent-color:var(--acc);margin:0;-webkit-appearance:checkbox;appearance:checkbox;"
+           onclick="event.stopPropagation()" onchange="event.stopPropagation()">
     <div class="part-thumbs" style="flex-shrink:0;cursor:pointer;" onclick="openPartSheet('${projId}','${part.id}')">
       ${thumbs}
     </div>
     <div style="flex:1;min-width:0;cursor:pointer;" onclick="openPartSheet('${projId}','${part.id}')">
       <div class="part-row-name" style="white-space:normal;">${esc(part.name)}${badge}</div>${wd}
     </div>
-    <div style="color:var(--mut);font-size:14px;flex-shrink:0;cursor:pointer;" onclick="openPartSheet('${projId}','${part.id}')">›</div>
+    <div style="color:var(--mut);font-size:14px;flex-shrink:0;cursor:pointer;padding:0 4px;" onclick="openPartSheet('${projId}','${part.id}')">›</div>
   </div>`;
 }
 
@@ -853,15 +850,14 @@ function updateProgress(){const cnt=['before','compare','after'].filter(s=>slotD
 // Export
 // ── 全選択トグル ─────────────────────────────────────────────
 function toggleAllParts(projId){
-  // アコーディオンが閉じていれば先に展開
   const proj=projects.find(p=>p.id===projId);
   if(proj && !proj.expanded){ proj.expanded=true; saveMeta(); renderProjects(); }
-  // 展開後にチェック操作（renderProjects後にDOMが更新される）
-  requestAnimationFrame(()=>{
-    const chks=[...document.querySelectorAll(`.part-chk[data-proj="${projId}"]`)];
-    const allChecked=chks.length>0 && chks.every(c=>c.checked);
-    chks.forEach(c=>c.checked=!allChecked);
-  });
+  const chks=[...document.querySelectorAll(`.part-chk[data-proj="${projId}"]`)];
+  console.log('[toggleAllParts] projId='+projId+' found chks='+chks.length);
+  if(chks.length===0){ toast('部品一覧を開いてください','error'); return; }
+  const allChecked=chks.every(c=>c.checked);
+  chks.forEach(c=>c.checked=!allChecked);
+  toast((allChecked?'選択解除':'全'+chks.length+'件を選択'),'success');
 }
 
 // ── チェック済部品のみExcel出力 ──────────────────────────────
@@ -871,8 +867,8 @@ async function exportCheckedParts(projId){
   // チェックされた part ID を収集（アコーディオン内の表示中チェックボックス）
   const allChks=[...document.querySelectorAll(`.part-chk[data-proj="${projId}"]`)];
   const checkedChks=allChks.filter(cb=>cb.checked);
+  console.log('[exportCheckedParts] allChks='+allChks.length+' checked='+checkedChks.length);
   if(!checkedChks.length){
-    // 未選択なら確認ダイアログ
     if(!confirm('部品が選択されていません。\n全部品をExcel出力しますか？')) return;
     await exportExcel(projId, proj.parts||[]);
     return;
