@@ -586,18 +586,20 @@ function partRowHtml(projId,part){
     ?`<div class="part-thumb"><img id="thumb-${projId}-${part.id}-${s}" src="" loading="lazy"></div>`
     :`<div class="part-thumb" style="opacity:.3">${icons[i]}</div>`).join('');
   const badge=done?`<span class="part-badge badge-done">完成</span>`:`<span class="part-badge badge-wip">${cnt}/3</span>`;
-  const wd=part.workdate?`<span style="font-size:11px;color:var(--mut);margin-left:6px;">📅${part.workdate}</span>`:'';
+  const wd=part.workdate?`<span style="font-size:11px;color:var(--mut);display:block;margin-top:2px;">📅${part.workdate}</span>`:'';
   const chkId=`chk-${projId}-${part.id}`;
-  return `<div class="part-row" style="gap:8px;">
-    <input type="checkbox" id="${chkId}" class="part-chk" data-proj="${projId}" data-part="${part.id}"
-           onclick="event.stopPropagation();" style="width:18px;height:18px;flex-shrink:0;cursor:pointer;accent-color:var(--acc);">
-    <div class="part-thumbs" style="flex-shrink:0;" onclick="openPartSheet('${projId}','${part.id}')">
+  return `<div class="part-row" style="cursor:default;gap:8px;">
+    <label for="${chkId}" style="display:flex;align-items:center;padding:4px;cursor:pointer;flex-shrink:0;" onclick="event.stopPropagation()">
+      <input type="checkbox" id="${chkId}" class="part-chk" data-proj="${projId}" data-part="${part.id}"
+             style="width:20px;height:20px;cursor:pointer;accent-color:var(--acc);">
+    </label>
+    <div class="part-thumbs" style="flex-shrink:0;cursor:pointer;" onclick="openPartSheet('${projId}','${part.id}')">
       ${thumbs}
     </div>
-    <div class="part-row-name" onclick="openPartSheet('${projId}','${part.id}')" style="flex:1;min-width:0;">
-      <div>${esc(part.name)}${badge}</div>${wd}
+    <div style="flex:1;min-width:0;cursor:pointer;" onclick="openPartSheet('${projId}','${part.id}')">
+      <div class="part-row-name" style="white-space:normal;">${esc(part.name)}${badge}</div>${wd}
     </div>
-    <div style="color:var(--mut);font-size:14px;flex-shrink:0;" onclick="openPartSheet('${projId}','${part.id}')">›</div>
+    <div style="color:var(--mut);font-size:14px;flex-shrink:0;cursor:pointer;" onclick="openPartSheet('${projId}','${part.id}')">›</div>
   </div>`;
 }
 
@@ -851,20 +853,32 @@ function updateProgress(){const cnt=['before','compare','after'].filter(s=>slotD
 // Export
 // ── 全選択トグル ─────────────────────────────────────────────
 function toggleAllParts(projId){
-  const chks=[...document.querySelectorAll(`.part-chk[data-proj="${projId}"]`)];
-  const allChecked=chks.every(c=>c.checked);
-  chks.forEach(c=>c.checked=!allChecked);
+  // アコーディオンが閉じていれば先に展開
+  const proj=projects.find(p=>p.id===projId);
+  if(proj && !proj.expanded){ proj.expanded=true; saveMeta(); renderProjects(); }
+  // 展開後にチェック操作（renderProjects後にDOMが更新される）
+  requestAnimationFrame(()=>{
+    const chks=[...document.querySelectorAll(`.part-chk[data-proj="${projId}"]`)];
+    const allChecked=chks.length>0 && chks.every(c=>c.checked);
+    chks.forEach(c=>c.checked=!allChecked);
+  });
 }
 
 // ── チェック済部品のみExcel出力 ──────────────────────────────
 async function exportCheckedParts(projId){
   const proj=projects.find(p=>p.id===projId);
   if(!proj) return;
-  // チェックされた part ID を収集
-  const chks=[...document.querySelectorAll(`.part-chk[data-proj="${projId}"]:checked`)];
-  const checkedIds=new Set(chks.map(c=>c.dataset.part));
+  // チェックされた part ID を収集（アコーディオン内の表示中チェックボックス）
+  const allChks=[...document.querySelectorAll(`.part-chk[data-proj="${projId}"]`)];
+  const checkedChks=allChks.filter(cb=>cb.checked);
+  if(!checkedChks.length){
+    // 未選択なら確認ダイアログ
+    if(!confirm('部品が選択されていません。\n全部品をExcel出力しますか？')) return;
+    await exportExcel(projId, proj.parts||[]);
+    return;
+  }
+  const checkedIds=new Set(checkedChks.map(cb=>cb.dataset.part));
   const targetParts=(proj.parts||[]).filter(p=>checkedIds.has(p.id));
-  if(!targetParts.length){toast('部品を選択してください','error');return;}
   await exportExcel(projId, targetParts);
 }
 
