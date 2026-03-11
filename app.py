@@ -6,7 +6,7 @@
 
 from flask import Flask, request, jsonify, send_file, render_template
 from flask_cors import CORS
-from PIL import Image
+from PIL import Image, ImageDraw
 from datetime import date
 import io, base64, os, re, zipfile
 from lxml import etree
@@ -60,6 +60,76 @@ def lookup():
 # ══════════════════════════════════════════════════════
 # Excel生成ユーティリティ
 # ══════════════════════════════════════════════════════
+def draw_border(pil_img, color_rgb, frame_w, margin_top, margin_bot, margin_left, margin_right):
+    """
+    pil_img 上に指定色の矩形枠を描画して返す（元画像は変更しない）。
+    color_rgb : (R,G,B) タプル
+    frame_w   : 枠の太さ (px)  ※画像のピクセル単位
+    margin_*  : 枠の内側オフセット (px)
+    """
+    img  = pil_img.copy()
+    draw = ImageDraw.Draw(img)
+    W, H = img.size
+    half = frame_w // 2
+    x1 = margin_left  + half
+    y1 = margin_top   + half
+    x2 = W - margin_right  - half - 1
+    y2 = H - margin_bot    - half - 1
+    # 枠がはみ出ないようにクランプ
+    x1, y1 = max(0,x1), max(0,y1)
+    x2, y2 = min(W-1,x2), min(H-1,y2)
+    if x2 > x1 and y2 > y1:
+        draw.rectangle([x1,y1,x2,y2], outline=color_rgb, width=frame_w)
+    return img
+
+def get_frame_settings(data):
+    """リクエストJSONから枠設定を取得。なければデフォルト値を返す。"""
+    fs = data.get('frame_settings') or {}
+    return {
+        'width': int(fs.get('width', 20)),
+        'top':   int(fs.get('top',   0)),
+        'bot':   int(fs.get('bot',   0)),
+        'left':  int(fs.get('left',  0)),
+        'right': int(fs.get('right', 0)),
+    }
+
+# 枠の色定義
+BORDER_RED    = (255, 60,  60)   # 作業前・比較左
+BORDER_YELLOW = (255, 215, 0)    # 作業後・比較右
+
+def apply_borders(pil_img, slot, fs, slot_frames=None):
+    """
+    slot_frames: フロントの slotFrames[slot]（配列 or 旧形式dict）
+    複数の枠を順番に重ね描きする。
+    なければグローバル fs + スロットデフォルト色で1枠描画。
+    """
+    frames = []
+    if isinstance(slot_frames, list) and slot_frames:
+        frames = slot_frames
+    elif isinstance(slot_frames, dict) and slot_frames.get('color','none') != 'none':
+        # 旧形式（単一dict）を配列に変換
+        frames = [slot_frames]
+    else:
+        # グローバル設定でデフォルト1枠
+        default_color = 'red' if slot == 'before' else ('yellow' if slot == 'after' else 'red')
+        frames = [{'color': default_color, 'width': fs['width'],
+                   'top': fs['top'], 'bot': fs['bot'],
+                   'left': fs['left'], 'right': fs['right']}]
+
+    img = pil_img.copy()
+    for fr in frames:
+        color = fr.get('color', 'red')
+        if color == 'none':
+            continue
+        w  = max(1, int(fr.get('width', fs['width'])))
+        mt = int(fr.get('top',   fs['top']))
+        mb = int(fr.get('bot',   fs['bot']))
+        ml = int(fr.get('left',  fs['left']))
+        mr = int(fr.get('right', fs['right']))
+        border_color = BORDER_YELLOW if color == 'yellow' else BORDER_RED
+        img = draw_border(img, border_color, w, mt, mb, ml, mr)
+    return img
+
 def find_or_add_ss(ss_root, text):
     sis = ss_root.findall(f'{{{SS_NS}}}si')
     for i, si in enumerate(sis):
@@ -157,7 +227,8 @@ def make_rels_xml(entries):
 # ══════════════════════════════════════════════════════
 # Excel生成メイン
 # ══════════════════════════════════════════════════════
-def generate_excel(project, parts):
+def generate_excel(project, parts, fs=None):
+    if fs is None: fs = get_frame_settings({})
     with open(TEMPLATE_PATH, 'rb') as f:
         tmpl = f.read()
     with zipfile.ZipFile(io.BytesIO(tmpl), 'r') as tz:
@@ -229,6 +300,10 @@ def generate_excel(project, parts):
             if ',' in b64: b64 = b64.split(',',1)[1]
             pil = Image.open(io.BytesIO(base64.b64decode(b64))).convert('RGB')
             pil.thumbnail((3000,3000), Image.LANCZOS)
+            # スロットごとの個別枠設定（フロントのエディターで設定・複数枠対応）
+            slot_frames_map = part.get('slotFrames') or {}
+            slot_frame_data = slot_frames_map.get(slot)
+            pil = apply_borders(pil, slot, fs, slot_frame_data)   # 枠を描画
             buf = io.BytesIO(); pil.save(buf, 'JPEG', quality=90)
             mname   = f'image{img_no}.jpeg'
             new_rid = f'rId{sn*10+len(rels)+1}'
@@ -285,11 +360,12 @@ def export_excel():
         data    = request.get_json(force=True)
         project = data.get('project', {})
         parts   = data.get('parts', [])
+        fs      = get_frame_settings(data)   # 枠設定
         if not parts:
             return jsonify({'error': '部品が登録されていません'}), 400
         if not os.path.exists(TEMPLATE_PATH):
             return jsonify({'error': 'template.xlsx が見つかりません'}), 500
-        buf   = generate_excel(project, parts)
+        buf   = generate_excel(project, parts, fs)
         fname = re.sub(r'[^\w\u3040-\u9fff._-]', '_',
                        '_'.join(filter(None,[project.get('code',''), project.get('name','工事写真')]))) + '.xlsx'
         return send_file(buf, as_attachment=True, download_name=fname,
