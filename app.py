@@ -366,8 +366,27 @@ def export_excel():
         if not os.path.exists(TEMPLATE_PATH):
             return jsonify({'error': 'template.xlsx が見つかりません'}), 500
         buf   = generate_excel(project, parts, fs)
-        fname = re.sub(r'[^\w\u3040-\u9fff._-]', '_',
-                       '_'.join(filter(None,[project.get('code',''), project.get('name','工事写真')]))) + '.xlsx'
+        # ファイル名: 管理番号_物件名_シート1部品名_yyyymmdd.xlsx
+        first_part   = parts[0].get('name', '') if parts else ''
+        first_date   = parts[0].get('workdate', '') if parts else ''
+        # 作業日から yyyymmdd を抽出 (例: "2025.1.15　作業" → "20250115")
+        date_digits  = re.sub(r'[^0-9]', '', first_date)
+        date_str     = date_digits[:8].ljust(8,'0') if date_digits else ''
+        # "2025115" → "20250115" に0埋め
+        if len(date_digits) >= 4:
+            import datetime as _dt
+            try:
+                nums = [int(x) for x in re.findall(r'[0-9]+', first_date)]
+                if len(nums) >= 3:
+                    date_str = f'{nums[0]:04d}{nums[1]:02d}{nums[2]:02d}'
+            except: pass
+        name_parts = filter(None, [
+            project.get('code',''),
+            project.get('name',''),
+            first_part,
+            date_str,
+        ])
+        fname = re.sub(r'[^\w\u3040-\u9fff._-]', '_', '_'.join(name_parts)) + '.xlsx'
         return send_file(buf, as_attachment=True, download_name=fname,
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     except Exception as e:
