@@ -188,6 +188,11 @@ input[type=range]::-moz-range-track{height:6px;border-radius:3px;background:rgba
       style="background:var(--sur2);color:var(--txt);border:1px solid var(--bdr);border-radius:10px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;">
       ⚙️ 設定
     </button>
+    <button id="hdr-btn-sync" onclick="hdrSync()"
+      style="background:var(--sur2);color:var(--txt);border:1px solid var(--bdr);border-radius:10px;padding:8px 12px;font-size:18px;font-weight:700;cursor:pointer;display:none;"
+      title="Driveと同期">
+      ☁️
+    </button>
   </div>
 </div>
 <div class="main">
@@ -1419,6 +1424,8 @@ function updateDriveStatus(connected) {
     logoutBtn.style.display = 'inline-flex';
     const reAuthBtn = document.getElementById('drive-reauth-btn');
     if (reAuthBtn) reAuthBtn.style.display = 'inline-flex';
+    const syncBtn = document.getElementById('hdr-btn-sync');
+    if (syncBtn) syncBtn.style.display = 'inline-flex';
     // スプレッドシートリンクを更新
     const sheetLink = document.getElementById('drive-sheet-link');
     const sheetUrl  = document.getElementById('drive-sheet-url');
@@ -1430,6 +1437,8 @@ function updateDriveStatus(connected) {
     logoutBtn.style.display = 'none';
     const sheetLink = document.getElementById('drive-sheet-link');
     if (sheetLink) sheetLink.style.display = 'none';
+    const _syncBtn = document.getElementById('hdr-btn-sync');
+    if (_syncBtn) _syncBtn.style.display = 'none';
   }
 }
 
@@ -1756,6 +1765,16 @@ async function driveUploadPhoto(projId, partId, slot, base64data) {
 }
 
 // ── 手動同期ボタン ───────────────────────────────────────────
+async function hdrSync() {
+  const btn = document.getElementById('hdr-btn-sync');
+  if (btn) { btn.textContent = '🔄'; btn.disabled = true; }
+  try {
+    await driveSyncNow();
+  } finally {
+    if (btn) { btn.textContent = '☁️'; btn.disabled = false; }
+  }
+}
+
 async function driveSyncNow() {
   if (!driveToken) { toast('先にGoogleログインしてください', 'error'); return; }
   toast('同期中...', 'success');
