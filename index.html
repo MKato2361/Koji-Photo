@@ -822,7 +822,8 @@ async function exportExcel(projId, partsOverride){
     document.getElementById('loading-msg').textContent='Excelを生成中...';
     const resp=await fetch(sUrl.replace(/\/$/,'')+'/api/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:{code:proj.code,name:proj.name},parts:partsWithPhotos,frame_settings:frameSettings})});
     if(!resp.ok){const err=await resp.json().catch(()=>({error:'サーバーエラー'}));throw new Error(err.error);}
-    const blob=await resp.blob();const url=URL.createObjectURL(blob);
+    const arrayBuf=await resp.arrayBuffer();
+    const mimeXlsx='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     // ファイル名をフロント側で生成（CORSでヘッダーが読めない場合の対策）
     const _firstPart = (partsOverride||proj.parts||[])[0];
     const _wd = _firstPart?.workdate || '';
@@ -831,11 +832,16 @@ async function exportExcel(projId, partsOverride){
       ? String(_nums[0]).padStart(4,'0')+String(_nums[1]).padStart(2,'0')+String(_nums[2]).padStart(2,'0')
       : '';
     const _nameParts = [proj.code||'', proj.name||'', _firstPart?.name||'', _dateStr].filter(Boolean);
-    const fname = _nameParts.join('_').replace(/[\\/:*?"<>|]/g,'_') + '.xlsx';
-    const a=document.createElement('a');a.href=url;a.download=fname;a.click();URL.revokeObjectURL(url);
+    const fname = _nameParts.join('_').replace(/[\/:*?"<>|]/g,'_') + '.xlsx';
+    // ダウンロード
+    const dlBlob=new Blob([arrayBuf],{type:mimeXlsx});
+    const url=URL.createObjectURL(dlBlob);
+    const a=document.createElement('a');a.href=url;a.download=fname;a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),5000);
     toast('Excelをダウンロードしました！','success');
-    // Drive にも保存
-    driveUploadExcel(blob, fname).catch(()=>{});
+    // Drive に保存（ArrayBufferから別Blobを生成）
+    const driveBlob=new Blob([arrayBuf],{type:mimeXlsx});
+    driveUploadExcel(driveBlob, fname).catch(e=>console.error('Drive Excel upload:', e));
   }catch(e){toast('エラー: '+e.message,'error');}finally{hideLoading();}
 }
 
