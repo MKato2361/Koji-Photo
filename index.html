@@ -1465,7 +1465,17 @@ async function driveSaveData() {
     await driveSheetSave();
   } catch(e) {
     console.error('driveSaveData error:', e);
-    toast('Drive同期エラー: ' + e.message, 'error');
+    const msg = e.message || '';
+    if (msg.includes('403')) {
+      toast('権限エラー(403): 設定→「🔄 再認証」を押してください', 'error');
+    } else if (msg.includes('401')) {
+      toast('認証切れ(401): Googleに再ログインしてください', 'error');
+    } else if (msg.includes('404')) {
+      toast('シートが見つかりません(404): 再認証してください', 'error');
+      driveSheetId = null;
+    } else {
+      toast('Drive同期エラー: ' + msg, 'error');
+    }
   }
 }
 
@@ -1543,21 +1553,11 @@ async function driveSheetSave() {
     }
   }
 
-  // シートをクリア
-  const clearResp = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${sid}/values/A:L/clear`,
-    { method: 'POST', headers: { Authorization: 'Bearer ' + driveToken, 'Content-Type': 'application/json' } }
-  );
-  if (!clearResp.ok) {
-    const errText = await clearResp.text();
-    console.error('driveSheetSave clear failed:', clearResp.status, errText);
-    if (clearResp.status === 401) { driveLogout(); toast('Drive認証切れ。再ログインしてください', 'error'); }
-    else if (clearResp.status === 403) { toast('書き込み権限なし。「🔄 再認証」を押してください', 'error'); }
-    throw new Error('clear failed: ' + clearResp.status);
-  }
-
-  // 全行書き込み
-  const range = `A1:L${rows.length}`;
+  // クリアせず大きめ範囲で上書き（CORSプリフライト不要なPUTのみ使用）
+  // 既存データより行数が減った場合のため、空行で埋めて最大500行まで上書き
+  const MAX_ROWS = 500;
+  while (rows.length < MAX_ROWS) rows.push(['','','','','','','','','','','','']);
+  const range = `A1:L${MAX_ROWS}`;
   const writeResp = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${sid}/values/${range}?valueInputOption=RAW`,
     {
@@ -1569,6 +1569,9 @@ async function driveSheetSave() {
   if (!writeResp.ok) {
     const errText = await writeResp.text();
     console.error('driveSheetSave write failed:', writeResp.status, errText);
+    if (writeResp.status === 401) { driveLogout(); toast('Drive認証切れ。再ログインしてください', 'error'); }
+    else if (writeResp.status === 403) { toast('権限エラー。設定→「🔄 再認証」を押してください', 'error'); }
+    else if (errText.includes('accessNotConfigured')) { toast('Google Sheets APIをGCPで有効化してください', 'error'); }
     throw new Error('write failed: ' + writeResp.status);
   }
   console.log('driveSheetSave: OK', rows.length - 1, 'parts →', sid);
@@ -1594,7 +1597,7 @@ async function driveSheetLoad() {
     const [projId, projCode, projName, projManager,
            partId, partName, workdate, oldDesc, newDesc,
            slotFramesJson, photosJson, updatedAt] = row;
-    if (!projId || !partId) continue;
+    if (!projId || !partId || (!projCode && !projName && !partName)) continue;
 
     if (!projMap[projId]) {
       projMap[projId] = { id: projId, code: projCode || '', name: projName || '', manager: projManager || '', parts: [] };
