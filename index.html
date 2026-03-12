@@ -803,7 +803,7 @@ async function exportCheckedParts(projId){
 
 async function exportExcel(projId, partsOverride){
   const sUrl=localStorage.getItem('kp3-server')||serverUrl||'';
-  if(!sUrl){toast('設定からサーバーURLを入力してください','error');showPage('settings'));return;}
+  if(!sUrl){toast('設定からサーバーURLを入力してください','error');showPage('settings');return;}
   const proj=projects.find(p=>p.id===projId);
   if(!proj){toast('物件が見つかりません','error');return;}
   showLoading('写真を読み込み中...');
