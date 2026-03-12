@@ -14,15 +14,12 @@
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 html,body{height:100%;overflow:hidden;}
 body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);color:var(--txt);display:flex;flex-direction:column;}
-.hdr{background:var(--sur);border-bottom:1px solid var(--bdr);padding:0 16px;padding-top:calc(10px + var(--safe-top));display:flex;align-items:center;justify-content:space-between;min-height:56px;flex-shrink:0;}
+.hdr{background:var(--sur);border-bottom:1px solid var(--bdr);padding:0 14px;padding-top:calc(10px + var(--safe-top));display:flex;align-items:center;justify-content:space-between;justify-content:space-between;min-height:56px;flex-shrink:0;}
 .logo{display:flex;align-items:center;gap:10px;}
 .logo-icon{width:32px;height:32px;background:var(--acc);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:17px;}
 .logo-txt{font-family:'Rajdhani',sans-serif;font-size:17px;font-weight:700;letter-spacing:1.5px;}
 .logo-sub{font-size:9px;color:var(--mut);letter-spacing:.8px;}
-.bnav{background:var(--sur);border-top:1px solid var(--bdr);display:flex;flex-shrink:0;padding-bottom:var(--safe-bot);}
-.bnav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 4px;cursor:pointer;font-size:10px;color:var(--mut);border:none;background:none;transition:color .15s;}
-.bnav-item .bi{font-size:22px;}
-.bnav-item.active{color:var(--acc);}
+
 .main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;}
 .page{display:none;padding:14px;padding-bottom:24px;}
 .page.active{display:block;animation:fadeUp .2s ease;}
@@ -109,7 +106,7 @@ input[type=file]{display:none;}
 .prog-bar{height:5px;background:var(--sur2);border-radius:3px;overflow:hidden;}
 .prog-fill{height:100%;background:var(--acc);border-radius:3px;transition:width .3s;}
 .divider{height:1px;background:var(--bdr);margin:14px 0;}
-.toast{position:fixed;bottom:calc(62px + var(--safe-bot) + 10px);left:50%;transform:translateX(-50%) translateY(16px);background:var(--sur);border:1px solid var(--bdr);border-radius:10px;padding:10px 18px;font-size:13px;display:flex;align-items:center;gap:8px;opacity:0;transition:all .3s;z-index:500;white-space:nowrap;box-shadow:0 8px 24px rgba(0,0,0,.4);pointer-events:none;}
+.toast{position:fixed;bottom:calc(20px + var(--safe-bot));left:50%;transform:translateX(-50%) translateY(16px);background:var(--sur);border:1px solid var(--bdr);border-radius:10px;padding:10px 18px;font-size:13px;display:flex;align-items:center;gap:8px;opacity:0;transition:all .3s;z-index:500;white-space:nowrap;box-shadow:0 8px 24px rgba(0,0,0,.4);pointer-events:none;}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 .toast.success{border-color:var(--grn);}
 .toast.error{border-color:var(--red);}
@@ -122,7 +119,7 @@ input[type=file]{display:none;}
 .empty-state .ei{font-size:48px;margin-bottom:12px;}
 .empty-state h3{font-size:16px;color:var(--txt);margin-bottom:6px;}
 .empty-state p{font-size:13px;line-height:1.7;}
-.fab{position:fixed;bottom:calc(62px + var(--safe-bot) + 16px);right:16px;width:52px;height:52px;border-radius:50%;background:var(--acc);color:#000;border:none;font-size:26px;cursor:pointer;z-index:100;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(240,165,0,.4);transition:all .15s;}
+.fab{position:fixed;bottom:calc(24px + var(--safe-bot));right:16px;width:52px;height:52px;border-radius:50%;background:var(--acc);color:#000;border:none;font-size:26px;cursor:pointer;z-index:100;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(240,165,0,.4);transition:all .15s;}
 .fab:active{transform:scale(.93);}
 
 /* ── FRAME EDITOR ── */
@@ -172,10 +169,20 @@ input[type=file]{display:none;}
 </style>
 </head>
 <body>
-<div class="hdr">
+<div class="hdr" style="display:flex;align-items:center;justify-content:space-between;padding:0 14px;">
   <div class="logo">
     <div class="logo-icon">📸</div>
     <div><div class="logo-txt">KOJI PHOTO</div><div class="logo-sub">工事写真 Excel 自動生成</div></div>
+  </div>
+  <div style="display:flex;gap:8px;">
+    <button id="hdr-btn-list" onclick="showPage('list')"
+      style="background:var(--acc);color:#000;border:none;border-radius:10px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;">
+      🏗️ 物件一覧
+    </button>
+    <button id="hdr-btn-settings" onclick="showPage('settings')"
+      style="background:var(--sur2);color:var(--txt);border:1px solid var(--bdr);border-radius:10px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;">
+      ⚙️ 設定
+    </button>
   </div>
 </div>
 <div class="main">
@@ -193,98 +200,7 @@ input[type=file]{display:none;}
       <div style="font-size:12px;color:var(--mut);margin-bottom:12px;">全データをリセット（元に戻せません）</div>
       <button class="btn btn-danger btn-sm" onclick="resetAll()">🗑 すべてリセット</button>
     </div>
-    <div style="background:var(--sur);border:1px solid var(--bdr);border-radius:14px;padding:16px;margin-bottom:12px;">
-      <div style="font-size:11px;font-weight:700;color:var(--mut);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;">構成メモ</div>
-      <div style="font-size:12px;color:var(--mut);line-height:2.0;">フロント: このHTMLをGitHub Pagesで公開<br>バック: app.py をサーバーで起動<br>DB: db.xlsx（A=管理番号 B=物件名 C=担当者）</div>
-    </div>
-    <div style="background:var(--sur);border:1px solid var(--bdr);border-radius:14px;padding:16px;margin-bottom:12px;">
-      <div style="font-size:11px;font-weight:700;color:var(--mut);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;">👥 複数ユーザー対応について</div>
-      <div style="font-size:12px;color:var(--mut);line-height:2.0;">
-        <b style="color:var(--txt);">現在の構成（1人用）</b><br>
-        各自がGoogleアカウントでログインし、自分のDriveに保存する方式。<br><br>
-        <b style="color:var(--txt);">複数ユーザー対応の方法</b><br>
-        ① <b>Googleドライブ共有フォルダ</b>方式：1人がフォルダを作成し他メンバーに共有。ただし同時編集で上書き競合の可能性あり。<br>
-        ② <b>Firebase Realtime Database</b>方式：リアルタイム同期・競合解決に対応。別途Firebaseプロジェクトの設定が必要。<br>
-        ③ <b>Flaskサーバー拡張</b>方式：app.pyにユーザー認証・DB（SQLite/PostgreSQL）を追加。最も堅牢。<br><br>
-        <span style="color:var(--acc);">推奨：現時点では①の共有フォルダ方式が最も手軽です。</span>
-      </div>
-    </div>
 
-    <!-- 写真枠設定カード -->
-    <div style="background:var(--sur);border:1px solid var(--bdr);border-radius:14px;padding:16px;margin-bottom:12px;">
-      <div style="font-size:11px;font-weight:700;color:var(--mut);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">🖼 写真枠設定</div>
-      <div style="font-size:12px;color:var(--mut);margin-bottom:14px;line-height:1.7;">
-        Excel出力時に写真へ枠を描画します。<br>
-        <span style="color:var(--red);">■</span> 作業前・比較（旧）= 赤枠 &nbsp;
-        <span style="color:#FFD700;">■</span> 作業後・比較（新）= 黄枠
-      </div>
-
-      <div style="display:flex;flex-direction:column;gap:14px;">
-        <!-- 枠の太さ -->
-        <div>
-          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-            <label style="font-size:12px;font-weight:600;color:var(--txt);">枠の太さ</label>
-            <span id="frame-width-val" style="font-size:12px;color:var(--acc);font-weight:700;">20 px</span>
-          </div>
-          <input type="range" id="frame-width" min="4" max="60" step="2" value="20"
-                 oninput="updateFrameLabel('frame-width','frame-width-val','px')"
-                 style="width:100%;accent-color:var(--acc);">
-        </div>
-
-        <!-- 上マージン -->
-        <div>
-          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-            <label style="font-size:12px;font-weight:600;color:var(--txt);">枠の位置 — 上</label>
-            <span id="frame-top-val" style="font-size:12px;color:var(--acc);font-weight:700;">0 px</span>
-          </div>
-          <input type="range" id="frame-top" min="0" max="200" step="4" value="0"
-                 oninput="updateFrameLabel('frame-top','frame-top-val','px')"
-                 style="width:100%;accent-color:var(--acc);">
-        </div>
-
-        <!-- 下マージン -->
-        <div>
-          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-            <label style="font-size:12px;font-weight:600;color:var(--txt);">枠の位置 — 下</label>
-            <span id="frame-bot-val" style="font-size:12px;color:var(--acc);font-weight:700;">0 px</span>
-          </div>
-          <input type="range" id="frame-bot" min="0" max="200" step="4" value="0"
-                 oninput="updateFrameLabel('frame-bot','frame-bot-val','px')"
-                 style="width:100%;accent-color:var(--acc);">
-        </div>
-
-        <!-- 左マージン -->
-        <div>
-          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-            <label style="font-size:12px;font-weight:600;color:var(--txt);">枠の位置 — 左</label>
-            <span id="frame-left-val" style="font-size:12px;color:var(--acc);font-weight:700;">0 px</span>
-          </div>
-          <input type="range" id="frame-left" min="0" max="200" step="4" value="0"
-                 oninput="updateFrameLabel('frame-left','frame-left-val','px')"
-                 style="width:100%;accent-color:var(--acc);">
-        </div>
-
-        <!-- 右マージン -->
-        <div>
-          <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-            <label style="font-size:12px;font-weight:600;color:var(--txt);">枠の位置 — 右</label>
-            <span id="frame-right-val" style="font-size:12px;color:var(--acc);font-weight:700;">0 px</span>
-          </div>
-          <input type="range" id="frame-right" min="0" max="200" step="4" value="0"
-                 oninput="updateFrameLabel('frame-right','frame-right-val','px')"
-                 style="width:100%;accent-color:var(--acc);">
-        </div>
-      </div>
-
-      <!-- プレビュー -->
-      <div style="margin-top:16px;position:relative;background:var(--sur2);border:1px solid var(--bdr);border-radius:10px;overflow:hidden;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;">
-        <canvas id="frame-preview" style="width:100%;height:100%;object-fit:contain;"></canvas>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
-        <button class="btn btn-primary btn-sm" onclick="saveFrameSettings()">💾 保存</button>
-        <button class="btn btn-secondary btn-sm" onclick="resetFrameSettings()">リセット</button>
-      </div>
-    </div>
 
     <!-- Google Drive 連携カード -->
     <div style="background:var(--sur);border:1px solid var(--bdr);border-radius:14px;padding:16px;margin-bottom:12px;">
@@ -314,10 +230,7 @@ input[type=file]{display:none;}
   </div>
 </div>
 <button class="fab" id="fab-btn" onclick="openProjectSheet(null)">＋</button>
-<nav class="bnav">
-  <button class="bnav-item active" id="bnav-list" onclick="showPage('list',this)"><span class="bi">🏗️</span>物件一覧</button>
-  <button class="bnav-item" id="bnav-settings" onclick="showPage('settings',this)"><span class="bi">⚙️</span>設定</button>
-</nav>
+
 <!-- 物件シート -->
 <div class="overlay" id="proj-sheet">
   <div class="sheet">
@@ -516,14 +429,22 @@ function saveMeta(){
   driveSaveData().catch(()=>{});
 }
 
-function showPage(name,el){
+function showPage(name){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.bnav-item').forEach(b=>b.classList.remove('active'));
   document.getElementById('page-'+name).classList.add('active');
-  if(el)el.classList.add('active');
   document.getElementById('fab-btn').style.display=name==='list'?'flex':'none';
   if(name==='list')renderProjects();
   if(name==='settings')setTimeout(drawFramePreview,50);
+  // ヘッダーボタンのアクティブ状態
+  ['list','settings'].forEach(n=>{
+    const btn=document.getElementById('hdr-btn-'+n);
+    if(!btn) return;
+    if(n===name){
+      btn.style.background='var(--acc)';btn.style.color='#000';btn.style.border='none';
+    } else {
+      btn.style.background='var(--sur2)';btn.style.color='var(--txt)';btn.style.border='1px solid var(--bdr)';
+    }
+  });
 }
 
 function renderProjects(){
@@ -882,7 +803,7 @@ async function exportCheckedParts(projId){
 
 async function exportExcel(projId, partsOverride){
   const sUrl=localStorage.getItem('kp3-server')||serverUrl||'';
-  if(!sUrl){toast('設定からサーバーURLを入力してください','error');showPage('settings',document.getElementById('bnav-settings'));return;}
+  if(!sUrl){toast('設定からサーバーURLを入力してください','error');showPage('settings'));return;}
   const proj=projects.find(p=>p.id===projId);
   if(!proj){toast('物件が見つかりません','error');return;}
   showLoading('写真を読み込み中...');
