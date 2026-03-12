@@ -1293,8 +1293,12 @@ function initDrive() {
   if (token && Date.now() < expiry - 60000) {
     driveToken = token;
     updateDriveStatus(true);
-    // 残り時間に合わせて自動リフレッシュをスケジュール
     scheduleDriveRefresh(expiry);
+    // 起動時にDriveからデータ復元
+    setTimeout(async () => {
+      await ensureDriveFolders();
+      await driveLoadData();
+    }, 800);
   } else {
     // トークン切れでもClientIDがあれば自動サイレントログイン試行
     if (clientId) {
@@ -1332,6 +1336,9 @@ function driveAutoRefresh() {
         localStorage.setItem('drive-token-expiry', String(expiry));
         updateDriveStatus(true);
         scheduleDriveRefresh(expiry);
+        // サイレントリフレッシュ後にデータ復元
+        await ensureDriveFolders();
+        await driveLoadData();
       },
     });
     tokenClient.requestAccessToken({ prompt: '' });
@@ -1451,29 +1458,36 @@ async function ensureDriveFolders() {
 // ── データ同期 (data.json) ─────────────────────────────────────
 async function driveSaveData() {
   if (!driveToken) return;
+  // フォルダが未取得なら先に取得
   if (!driveFolderIds.root) await ensureDriveFolders();
-  if (!driveFolderIds.root) return;
+  if (!driveFolderIds.root) { console.warn('driveSaveData: no root folder'); return; }
   try {
-    await driveSheetSave();   // スプレッドシートに保存
-  } catch(e) { console.error('driveSaveData:', e); }
+    await driveSheetSave();
+  } catch(e) {
+    console.error('driveSaveData error:', e);
+    toast('Drive同期エラー: ' + e.message, 'error');
+  }
 }
 
 // ── Google Sheets にデータを保存 ─────────────────────────────
-// シート構成: 1行目=ヘッダー, 2行目以降=1部品1行
-// 列: projId | projCode | projName | projManager | partId | partName | workdate | oldDesc | newDesc | slotFrames(JSON) | updatedAt
 const SHEET_NAME   = '工事写真データ';
 const SHEET_HEADER = ['projId','projCode','projName','projManager','partId','partName','workdate','oldDesc','newDesc','slotFrames','photos','updatedAt'];
 
 async function driveSheetEnsure() {
   if (driveSheetId) return driveSheetId;
+  if (!driveFolderIds.root) await ensureDriveFolders();
+  if (!driveFolderIds.root) return null;
+
   // フォルダ内でスプレッドシートを検索
   const q = `name='${SHEET_NAME}' and '${driveFolderIds.root}' in parents and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`;
   const res = await driveRequest('GET', `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)`);
   if (res?.files?.length) {
     driveSheetId = res.files[0].id;
+    console.log('driveSheetEnsure: found existing sheet', driveSheetId);
     return driveSheetId;
   }
   // なければ作成
+  console.log('driveSheetEnsure: creating new sheet...');
   const created = await driveRequest('POST', 'https://www.googleapis.com/drive/v3/files', {
     name: SHEET_NAME,
     mimeType: 'application/vnd.google-apps.spreadsheet',
@@ -1481,7 +1495,8 @@ async function driveSheetEnsure() {
   });
   driveSheetId = created?.id || null;
   if (!driveSheetId) {
-    console.error('driveSheetEnsure: failed to create sheet. Check spreadsheets scope.');
+    console.error('driveSheetEnsure: failed to create. Token may lack spreadsheets scope.');
+    toast('スプレッドシート作成失敗。「🔄 再認証」を押してください', 'error');
     return null;
   }
   // ヘッダー行を書き込む
@@ -1490,120 +1505,162 @@ async function driveSheetEnsure() {
     headers: { Authorization: 'Bearer ' + driveToken, 'Content-Type': 'application/json' },
     body: JSON.stringify({ values: [SHEET_HEADER] }),
   });
+  console.log('driveSheetEnsure: created sheet', driveSheetId);
+  // シートURLをUIに反映
+  const sheetUrl = document.getElementById('drive-sheet-url');
+  if (sheetUrl) sheetUrl.href = `https://docs.google.com/spreadsheets/d/${driveSheetId}`;
   return driveSheetId;
 }
 
 async function driveSheetSave() {
   const sid = await driveSheetEnsure();
-  if (!sid) { console.warn('driveSheetSave: no sheet ID'); return; }
+  if (!sid) { console.warn('driveSheetSave: no sheet ID, skipping'); return; }
+
   // 全部品を行に変換
   const rows = [SHEET_HEADER];
   for (const proj of projects) {
     for (const part of (proj.parts || [])) {
+      // photos は {before:true/false,...} → 文字列化
+      const photosVal = JSON.stringify({
+        before:  !!part.photos?.before,
+        compare: !!part.photos?.compare,
+        after:   !!part.photos?.after,
+      });
       rows.push([
-        proj.id, proj.code||'', proj.name||'', proj.manager||'',
-        part.id, part.name||'', part.workdate||'',
-        part.oldDesc||'', part.newDesc||'',
-        JSON.stringify(part.slotFrames||{}),
-        JSON.stringify(part.photos||{}),
-        part.updatedAt||'',
+        proj.id        || '',
+        proj.code      || '',
+        proj.name      || '',
+        proj.manager   || '',
+        part.id        || '',
+        part.name      || '',
+        part.workdate  || '',
+        part.oldDesc   || '',
+        part.newDesc   || '',
+        JSON.stringify(part.slotFrames || {}),
+        photosVal,
+        part.updatedAt || '',
       ]);
     }
   }
+
   // シートをクリア
-  const clearResp = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sid}/values/A:L/clear`, {
-    method: 'POST',
-    headers: { Authorization: 'Bearer ' + driveToken, 'Content-Type': 'application/json' },
-  });
+  const clearResp = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${sid}/values/A:L/clear`,
+    { method: 'POST', headers: { Authorization: 'Bearer ' + driveToken, 'Content-Type': 'application/json' } }
+  );
   if (!clearResp.ok) {
-    const err = await clearResp.text();
-    console.error('driveSheetSave clear error:', clearResp.status, err);
-    // 403はスコープ不足 → 再ログインを促す
-    if (clearResp.status === 403) toast('スプレッドシートへの書き込みにはGoogleの再ログインが必要です', 'error');
-    return;
+    const errText = await clearResp.text();
+    console.error('driveSheetSave clear failed:', clearResp.status, errText);
+    if (clearResp.status === 401) { driveLogout(); toast('Drive認証切れ。再ログインしてください', 'error'); }
+    else if (clearResp.status === 403) { toast('書き込み権限なし。「🔄 再認証」を押してください', 'error'); }
+    throw new Error('clear failed: ' + clearResp.status);
   }
+
   // 全行書き込み
   const range = `A1:L${rows.length}`;
-  const writeResp = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sid}/values/${range}?valueInputOption=RAW`, {
-    method: 'PUT',
-    headers: { Authorization: 'Bearer ' + driveToken, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ values: rows }),
-  });
+  const writeResp = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${sid}/values/${range}?valueInputOption=RAW`,
+    {
+      method: 'PUT',
+      headers: { Authorization: 'Bearer ' + driveToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values: rows }),
+    }
+  );
   if (!writeResp.ok) {
-    const err = await writeResp.text();
-    console.error('driveSheetSave write error:', writeResp.status, err);
-    return;
+    const errText = await writeResp.text();
+    console.error('driveSheetSave write failed:', writeResp.status, errText);
+    throw new Error('write failed: ' + writeResp.status);
   }
-  console.log('driveSheetSave: saved', rows.length-1, 'parts to sheet', sid);
+  console.log('driveSheetSave: OK', rows.length - 1, 'parts →', sid);
 }
 
 async function driveSheetLoad() {
   const sid = await driveSheetEnsure();
   if (!sid) return null;
-  const resp = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sid}/values/A:L`, {
-    headers: { Authorization: 'Bearer ' + driveToken },
-  });
-  if (!resp.ok) return null;
+
+  const resp = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${sid}/values/A:L`,
+    { headers: { Authorization: 'Bearer ' + driveToken } }
+  );
+  if (!resp.ok) { console.error('driveSheetLoad failed:', resp.status); return null; }
+
   const data = await resp.json();
   const rows = data.values || [];
-  if (rows.length < 2) return null;
-  // ヘッダーをスキップして projects に再構築
+  if (rows.length < 2) { console.log('driveSheetLoad: sheet empty'); return null; }
+
+  // ヘッダー行をスキップして projects に再構築
   const projMap = {};
   for (const row of rows.slice(1)) {
-    const [projId, projCode, projName, projManager, partId, partName, workdate, oldDesc, newDesc, slotFramesJson, photosJson, updatedAt] = row;
+    const [projId, projCode, projName, projManager,
+           partId, partName, workdate, oldDesc, newDesc,
+           slotFramesJson, photosJson, updatedAt] = row;
     if (!projId || !partId) continue;
+
     if (!projMap[projId]) {
-      projMap[projId] = { id: projId, code: projCode, name: projName, manager: projManager, parts: [] };
+      projMap[projId] = { id: projId, code: projCode || '', name: projName || '', manager: projManager || '', parts: [] };
     }
+
+    // JSON を安全にパース
     let slotFrames = {};
-    let photos = {};
-    try { slotFrames = JSON.parse(slotFramesJson || '{}'); } catch(e){}
-    try { photos = JSON.parse(photosJson || '{}'); } catch(e){}
-    projMap[projId].parts.push({ id: partId, name: partName, workdate, oldDesc, newDesc, slotFrames, photos, updatedAt });
-  }
-  return Object.values(projMap);
-}
+    let photos = { before: false, compare: false, after: false };
+    try { slotFrames = JSON.parse(slotFramesJson || '{}'); } catch(e) {}
+    try {
+      const p = JSON.parse(photosJson || '{}');
+      // "true"/"false" 文字列にも対応
+      photos = {
+        before:  p.before  === true || p.before  === 'true',
+        compare: p.compare === true || p.compare === 'true',
+        after:   p.after   === true || p.after   === 'true',
+      };
+    } catch(e) {}
 
-
-async function driveLoadData() {
-  if (!driveToken) return;
-  if (!driveFolderIds.root) await ensureDriveFolders();
-  if (!driveFolderIds.root) return;
-
-  try {
-    // まずスプレッドシートから読み込む
-    const remote = await driveSheetLoad();
-    if (remote && remote.length > 0) {
-      projects = remote;
-      saveMeta();
-      renderProjects();
-      toast('Driveからデータを復元しました（スプレッドシート）', 'success');
-      driveDownloadAllPhotos(remote).catch(e=>console.warn('photo sync:', e));
-      return;
-    }
-    // スプレッドシートがなければdata.jsonにフォールバック（旧互換）
-    const q = `name='data.json' and '${driveFolderIds.root}' in parents and trashed=false`;
-    const found = await driveRequest('GET', `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)`);
-    if (!found?.files?.length) return;
-    driveDataFileId = found.files[0].id;
-    const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${driveDataFileId}?alt=media`, {
-      headers: { Authorization: 'Bearer ' + driveToken },
+    projMap[projId].parts.push({
+      id: partId, name: partName || '', workdate: workdate || '',
+      oldDesc: oldDesc || '', newDesc: newDesc || '',
+      slotFrames, photos, updatedAt: updatedAt || '',
     });
-    if (!resp.ok) return;
-    const legacyData = await resp.json();
-    if (Array.isArray(legacyData) && legacyData.length > 0) {
-      projects = legacyData;
-      saveMeta();
-      renderProjects();
-      toast('Driveからデータを復元しました（旧形式）', 'success');
-      // スプレッドシートに移行保存
-      await driveSheetSave();
-      driveDownloadAllPhotos(legacyData).catch(e=>console.warn('photo sync:', e));
-    }
-  } catch(e) { console.error('driveLoadData:', e); }
+  }
+  const result = Object.values(projMap);
+  console.log('driveSheetLoad: loaded', result.length, 'projects');
+  return result;
 }
+
 
 // ── Drive から写真をダウンロードしてIDBへ保存（他端末同期用）──
+async function driveLoadData() {
+  // スプレッドシートからプロジェクトデータを復元
+  try {
+    const sheetProjects = await driveSheetLoad();
+    if (sheetProjects && sheetProjects.length > 0) {
+      // ローカルと統合（シートを正とする）
+      const local = projects;
+      // シートに無いプロジェクトはローカルから補完
+      const sheetIds = new Set(sheetProjects.map(p => p.id));
+      const localOnly = local.filter(p => !sheetIds.has(p.id));
+      projects = [...sheetProjects, ...localOnly];
+      // expanded 状態はローカルから引き継ぐ
+      projects.forEach(sp => {
+        const lp = local.find(p => p.id === sp.id);
+        if (lp) sp.expanded = lp.expanded;
+      });
+      saveMeta();
+      renderProjects();
+      toast('Driveからデータを復元しました ☁️', 'success');
+    } else {
+      // シートが空 → ローカルデータをシートに書き込んで初期化
+      if (projects.length > 0) {
+        await driveSaveData();
+        toast('ローカルデータをDriveに同期しました ✅', 'success');
+      }
+    }
+    // 写真を非同期でダウンロード
+    driveDownloadAllPhotos(projects).catch(() => {});
+  } catch(e) {
+    console.error('driveLoadData error:', e);
+    toast('Drive復元エラー: ' + e.message, 'error');
+  }
+}
+
 async function driveDownloadAllPhotos(projList) {
   if (!driveToken || !driveFolderIds.photos) return;
   let synced = 0;
