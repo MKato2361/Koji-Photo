@@ -461,15 +461,24 @@ function renderProjects(){
   const c=document.getElementById('proj-list');
   if(!projects.length){c.innerHTML=`<div class="empty-state"><div class="ei">🏗️</div><h3>物件が登録されていません</h3><p>右下の「＋」ボタンから<br>物件を追加してください</p></div>`;return;}
   c.innerHTML=projects.map(projCardHtml).join('');
-  // サムネイルを非同期で読み込む
+  // サムネイルを非同期で読み込む（IDBになければDriveから取得）
   projects.forEach(proj=>{
     (proj.parts||[]).forEach(part=>{
       ['before','compare','after'].forEach(slot=>{
         if(part.photos&&part.photos[slot]){
-          dbGet(pkey(proj.id,part.id,slot)).then(b64=>{
-            if(!b64)return;
-            const img=document.getElementById(`thumb-${proj.id}-${part.id}-${slot}`);
-            if(img)img.src=b64;
+          const key=pkey(proj.id,part.id,slot);
+          dbGet(key).then(async b64=>{
+            if(b64){
+              const img=document.getElementById(`thumb-${proj.id}-${part.id}-${slot}`);
+              if(img)img.src=b64;
+            } else if(driveToken && driveFolderIds.photos) {
+              // IDBにない → Driveから取得してIDBに保存
+              const fetched = await driveDownloadOnePhoto(proj.id, part.id, slot);
+              if(fetched){
+                const img=document.getElementById(`thumb-${proj.id}-${part.id}-${slot}`);
+                if(img)img.src=fetched;
+              }
+            }
           }).catch(()=>{});
         }
       });
@@ -630,8 +639,17 @@ async function openPartSheet(projId,partId){
       after:   pf.after   || defaultSlotFrame('after'),
     };
     for(const slot of['before','compare','after']){
-      if(part.photos&&part.photos[slot]){const b64=await dbGet(pkey(projId,partId,slot));slotData[slot]=b64;if(b64)setSlotImg(slot,b64);else clearSlotUI(slot);}
-      else clearSlotUI(slot);
+      if(part.photos&&part.photos[slot]){
+        let b64=await dbGet(pkey(projId,partId,slot));
+        if(!b64 && driveToken && driveFolderIds.photos){
+          // IDBにない → Driveから取得
+          toast('Drive から写真を取得中...', 'success');
+          b64 = await driveDownloadOnePhoto(projId, partId, slot);
+        }
+        slotData[slot]=b64;
+        if(b64) setSlotImg(slot,b64);
+        else clearSlotUI(slot);
+      } else clearSlotUI(slot);
     }
   }else{
     document.getElementById('pm-name').value='';
@@ -1684,24 +1702,71 @@ async function driveLoadData() {
   }
 }
 
+// ── 写真1枚をDriveから取得してIDBに保存 ───────────────────────
+async function driveDownloadOnePhoto(projId, partId, slot) {
+  if (!driveToken || !driveFolderIds.photos) return null;
+  try {
+    const fname = `${projId}_${partId}_${slot}.jpg`;
+    // name= クエリで検索（Drive は完全一致）
+    const q = `'${driveFolderIds.photos}' in parents and trashed=false and name='${fname}'`;
+    const res = await driveRequest('GET',
+      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`);
+    if (!res?.files?.length) return null;
+    const fid = res.files[0].id;
+    const imgResp = await fetch(`https://www.googleapis.com/drive/v3/files/${fid}?alt=media`, {
+      headers: { Authorization: 'Bearer ' + driveToken },
+    });
+    if (!imgResp.ok) return null;
+    const blob = await imgResp.blob();
+    const b64 = await new Promise(resolve => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.readAsDataURL(blob);
+    });
+    const key = pkey(projId, partId, slot);
+    await dbPut(key, b64);
+    return b64;
+  } catch(e) {
+    console.warn('driveDownloadOnePhoto:', e);
+    return null;
+  }
+}
+
 async function driveDownloadAllPhotos(projList) {
   if (!driveToken || !driveFolderIds.photos) return;
+
+  // フォルダ内の全ファイルを一括取得（name= クエリを繰り返さない）
+  let allFiles = [];
+  let pageToken = null;
+  const folderQ = encodeURIComponent(`'${driveFolderIds.photos}' in parents and trashed=false`);
+  do {
+    const url = `https://www.googleapis.com/drive/v3/files?q=${folderQ}&fields=files(id,name)&pageSize=1000${pageToken ? '&pageToken=' + pageToken : ''}`;
+    const res = await driveRequest('GET', url);
+    if (!res?.files) break;
+    allFiles = allFiles.concat(res.files);
+    pageToken = res.nextPageToken || null;
+  } while (pageToken);
+
+  // ファイル名 → ID のマップを作成
+  const fileMap = {};
+  allFiles.forEach(f => { fileMap[f.name] = f.id; });
+  console.log(`driveDownloadAllPhotos: ${allFiles.length} files in photos folder`);
+
   let synced = 0;
   for (const proj of projList) {
     for (const part of (proj.parts || [])) {
       for (const slot of ['before','compare','after']) {
         if (!part.photos?.[slot]) continue;
         const key = pkey(proj.id, part.id, slot);
-        // IDBにすでにある場合はスキップ
         const existing = await dbGet(key).catch(() => null);
         if (existing) continue;
-        // Driveから取得
+
         const fname = `${proj.id}_${part.id}_${slot}.jpg`;
-        const q = `name='${fname}' and '${driveFolderIds.photos}' in parents and trashed=false`;
-        const res = await driveRequest('GET',
-          `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)`);
-        if (!res?.files?.length) continue;
-        const fid = res.files[0].id;
+        const fid = fileMap[fname];
+        if (!fid) {
+          console.warn('driveDownloadAllPhotos: not found in Drive:', fname);
+          continue;
+        }
         const imgResp = await fetch(`https://www.googleapis.com/drive/v3/files/${fid}?alt=media`, {
           headers: { Authorization: 'Bearer ' + driveToken },
         });
@@ -1720,6 +1785,8 @@ async function driveDownloadAllPhotos(projList) {
   if (synced > 0) {
     renderProjects();
     toast(`写真 ${synced}枚をDriveから同期しました ☁️`, 'success');
+  } else {
+    console.log('driveDownloadAllPhotos: all photos already in IDB or not found');
   }
 }
 
