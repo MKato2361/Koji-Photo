@@ -1733,7 +1733,7 @@ async function driveDownloadOnePhoto(projId, partId, slot, knownFileId=null) {
       // fileId不明 → フォルダ名前検索（フォールバック）
       if (!driveFolderIds.photos) await ensureDriveFolders();
       if (!driveFolderIds.photos) return null;
-      const fname = `${projId}_${partId}_${slot}.jpg`;
+      const fname = `${projId}__${partId}__${slot}.jpg`;
       const q = `'${driveFolderIds.photos}' in parents and trashed=false and name='${fname}'`;
       const res = await driveRequest('GET',
         `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`);
@@ -1786,16 +1786,56 @@ async function driveMigrateAndDownloadPhotos(projList) {
   allFiles.forEach(f => { fileMap[f.name] = f.id; });
   console.log(`[migrate] Drive photos folder: ${allFiles.length} files`);
 
-  // FileId未記録の部品にFileIdを付与
+  // 旧形式(_区切り)のファイルを新形式(__区切り)にリネーム
+  let renamed = 0;
+  const renameMap = {}; // 旧fname → 新fname
+  for (const [fname, fid] of Object.entries(fileMap)) {
+    // 旧形式: projId_partId_slot.jpg（__ を含まない）
+    if (!fname.includes('__')) {
+      // 末尾から slot を取り出す
+      const slotMatch = fname.match(/_(before|compare|after)\.jpg$/);
+      if (slotMatch) {
+        const slot = slotMatch[1];
+        const base = fname.slice(0, fname.lastIndexOf('_' + slot));
+        // base = projId_partId → 最後の _ で分割
+        const lastUs = base.lastIndexOf('_');
+        if (lastUs > 0) {
+          const pId = base.slice(0, lastUs);
+          const ptId = base.slice(lastUs + 1);
+          const newFname = `${pId}__${ptId}__${slot}.jpg`;
+          renameMap[fname] = { fid, newFname, pId, ptId, slot };
+        }
+      }
+    }
+  }
+
+  // Driveでリネーム（metadata PATCH）
+  for (const [oldFname, {fid, newFname}] of Object.entries(renameMap)) {
+    try {
+      const r = await fetch(`https://www.googleapis.com/drive/v3/files/${fid}`, {
+        method: 'PATCH',
+        headers: { Authorization: 'Bearer ' + driveToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newFname }),
+      });
+      if (r.ok) {
+        fileMap[newFname] = fid;
+        delete fileMap[oldFname];
+        renamed++;
+        console.log(`[migrate] renamed: ${oldFname} → ${newFname}`);
+      }
+    } catch(e) { console.warn('[migrate] rename failed:', oldFname, e); }
+  }
+  if (renamed > 0) console.log(`[migrate] ${renamed} files renamed on Drive`);
+
+  // FileId未記録の部品にFileIdを付与（新ファイル名で照合）
   let migrated = 0;
   for (const proj of projList) {
     for (const part of (proj.parts || [])) {
       let changed = false;
       for (const slot of ['before','compare','after']) {
         const val = part.photos?.[slot];
-        // true（旧フラグ）→ FileIdに置き換え
         if (val === true) {
-          const fname = `${proj.id}_${part.id}_${slot}.jpg`;
+          const fname = `${proj.id}__${part.id}__${slot}.jpg`;
           const fid = fileMap[fname];
           if (fid) {
             part.photos[slot] = fid;
@@ -1808,8 +1848,8 @@ async function driveMigrateAndDownloadPhotos(projList) {
     }
   }
 
-  console.log(`[migrate] migrated=${migrated}, fileMap keys=${Object.keys(fileMap).length}`);
-  if (migrated > 0) {
+  console.log(`[migrate] renamed=${renamed}, migrated=${migrated}, fileMap keys=${Object.keys(fileMap).length}`);
+  if (migrated > 0 || renamed > 0) {
     saveMeta();
     driveSaveData();
   }
@@ -1852,7 +1892,7 @@ async function driveDownloadAllPhotos(projList, fileMap=null) {
 
         // fileId が既知ならfileMapより優先
         const knownFid = typeof part.photos?.[slot]==='string' && !part.photos[slot].startsWith('data:') ? part.photos[slot] : null;
-        const fname = `${proj.id}_${part.id}_${slot}.jpg`;
+        const fname = `${proj.id}__${part.id}__${slot}.jpg`;
         const fid = knownFid || fileMap[fname];
         if (!fid) {
           console.warn('driveDownloadAllPhotos: not found:', fname, '(no fileId in photos, not in fileMap)');
@@ -1894,7 +1934,7 @@ async function driveUploadPhoto(projId, partId, slot, base64data) {
     for (let i = 0; i < byteStr.length; i++) arr[i] = byteStr.charCodeAt(i);
     const blob = new Blob([arr], { type: 'image/jpeg' });
 
-    const fname = `${projId}_${partId}_${slot}.jpg`;
+    const fname = `${projId}__${partId}__${slot}.jpg`;
     // 既存ファイル確認
     const q = `name='${fname}' and '${driveFolderIds.photos}' in parents and trashed=false`;
     const found = await driveRequest('GET', `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)`);
