@@ -1713,8 +1713,8 @@ async function driveLoadData() {
         toast('ローカルデータをDriveに同期しました ✅', 'success');
       }
     }
-    // 写真を非同期でダウンロード
-    driveDownloadAllPhotos(projects).catch(() => {});
+    // FileId未記録の写真を自動でFileIdに移行してからダウンロード
+    driveMigrateAndDownloadPhotos(projects).catch(() => {});
   } catch(e) {
     console.error('driveLoadData error:', e);
     toast('Drive復元エラー: ' + e.message, 'error');
@@ -1762,25 +1762,78 @@ async function driveDownloadOnePhoto(projId, partId, slot, knownFileId=null) {
   }
 }
 
-async function driveDownloadAllPhotos(projList) {
-  if (!driveToken || !driveFolderIds.photos) return;
+// ── FileId未記録の写真を一括移行してからダウンロード ──────────
+async function driveMigrateAndDownloadPhotos(projList) {
+  // まずフォルダ内の全ファイルを一括取得してfileMapを作る
+  if (!driveToken) return;
+  if (!driveFolderIds.photos) await ensureDriveFolders();
+  if (!driveFolderIds.photos) return;
 
-  // フォルダ内の全ファイルを一括取得（name= クエリを繰り返さない）
-  let allFiles = [];
-  let pageToken = null;
+  // フォルダ内ファイル一覧取得
+  let allFiles = [], pageToken = null;
   const folderQ = encodeURIComponent(`'${driveFolderIds.photos}' in parents and trashed=false`);
   do {
-    const url = `https://www.googleapis.com/drive/v3/files?q=${folderQ}&fields=files(id,name)&pageSize=1000${pageToken ? '&pageToken=' + pageToken : ''}`;
+    const url = `https://www.googleapis.com/drive/v3/files?q=${folderQ}&fields=files(id,name)&pageSize=1000${pageToken ? '&pageToken='+pageToken : ''}`;
     const res = await driveRequest('GET', url);
     if (!res?.files) break;
     allFiles = allFiles.concat(res.files);
     pageToken = res.nextPageToken || null;
-  } while (pageToken);
+  } while(pageToken);
 
-  // ファイル名 → ID のマップを作成
   const fileMap = {};
   allFiles.forEach(f => { fileMap[f.name] = f.id; });
-  console.log(`driveDownloadAllPhotos: ${allFiles.length} files in photos folder`);
+  console.log(`[migrate] Drive photos folder: ${allFiles.length} files`);
+
+  // FileId未記録の部品にFileIdを付与
+  let migrated = 0;
+  for (const proj of projList) {
+    for (const part of (proj.parts || [])) {
+      let changed = false;
+      for (const slot of ['before','compare','after']) {
+        const val = part.photos?.[slot];
+        // true（旧フラグ）→ FileIdに置き換え
+        if (val === true) {
+          const fname = `${proj.id}_${part.id}_${slot}.jpg`;
+          const fid = fileMap[fname];
+          if (fid) {
+            part.photos[slot] = fid;
+            changed = true;
+            migrated++;
+          }
+        }
+      }
+      if (changed) part.updatedAt = new Date().toISOString();
+    }
+  }
+
+  if (migrated > 0) {
+    console.log(`[migrate] ${migrated} photos migrated to fileId`);
+    saveMeta();          // localStorage更新
+    driveSaveData();     // スプレッドシートにも反映
+  }
+
+  // 続けて通常のダウンロード（IDBにない写真を取得）
+  await driveDownloadAllPhotos(projList, fileMap);
+}
+
+async function driveDownloadAllPhotos(projList, fileMap=null) {
+  if (!driveToken || !driveFolderIds.photos) return;
+
+  // fileMapが未渡しの場合のみフォルダ一括取得
+  if (!fileMap) {
+    let allFiles = [], pageToken = null;
+    const folderQ = encodeURIComponent(`'${driveFolderIds.photos}' in parents and trashed=false`);
+    do {
+      const url = `https://www.googleapis.com/drive/v3/files?q=${folderQ}&fields=files(id,name)&pageSize=1000${pageToken ? '&pageToken=' + pageToken : ''}`;
+      const res = await driveRequest('GET', url);
+      if (!res?.files) break;
+      allFiles = allFiles.concat(res.files);
+      pageToken = res.nextPageToken || null;
+    } while (pageToken);
+    fileMap = {};
+    allFiles.forEach(f => { fileMap[f.name] = f.id; });
+    console.log(`driveDownloadAllPhotos: ${allFiles.length} files in photos folder`);
+  }
 
   let synced = 0;
   for (const proj of projList) {
