@@ -420,14 +420,16 @@ let currentSlot=null,qrStream=null,qrTimer=null;
 
 function saveMeta(){
   // base64 を除去してフラグのみ保存（QuotaExceededError 防止）
+  // photos[slot] は fileId(文字列) or true or false
+  // fileId はそのまま保持（Drive同期で使用）、base64は除外
   const slim=projects.map(proj=>({
     ...proj,
     parts:(proj.parts||[]).map(part=>({
       ...part,
       photos:{
-        before:  typeof part.photos?.before  ==='string'?true:!!part.photos?.before,
-        compare: typeof part.photos?.compare ==='string'?true:!!part.photos?.compare,
-        after:   typeof part.photos?.after   ==='string'?true:!!part.photos?.after,
+        before:  typeof part.photos?.before  ==='string' && !part.photos.before.startsWith('data:') ? part.photos.before : !!part.photos?.before,
+        compare: typeof part.photos?.compare ==='string' && !part.photos.compare.startsWith('data:') ? part.photos.compare : !!part.photos?.compare,
+        after:   typeof part.photos?.after   ==='string' && !part.photos.after.startsWith('data:') ? part.photos.after : !!part.photos?.after,
       }
     }))
   }));
@@ -471,9 +473,11 @@ function renderProjects(){
             if(b64){
               const img=document.getElementById(`thumb-${proj.id}-${part.id}-${slot}`);
               if(img)img.src=b64;
-            } else if(driveToken && driveFolderIds.photos) {
+            } else if(driveToken) {
               // IDBにない → Driveから取得してIDBに保存
-              const fetched = await driveDownloadOnePhoto(proj.id, part.id, slot);
+              console.log('[thumb] IDB miss, fetching from Drive:', proj.id, part.id, slot);
+              const _knownFid = typeof part.photos[slot]==='string' && !part.photos[slot].startsWith('data:') ? part.photos[slot] : null;
+              const fetched = await driveDownloadOnePhoto(proj.id, part.id, slot, _knownFid);
               if(fetched){
                 const img=document.getElementById(`thumb-${proj.id}-${part.id}-${slot}`);
                 if(img)img.src=fetched;
@@ -641,10 +645,13 @@ async function openPartSheet(projId,partId){
     for(const slot of['before','compare','after']){
       if(part.photos&&part.photos[slot]){
         let b64=await dbGet(pkey(projId,partId,slot));
-        if(!b64 && driveToken && driveFolderIds.photos){
+        if(!b64 && driveToken){
           // IDBにない → Driveから取得
+          console.log('[openPartSheet] IDB miss, fetching from Drive:', slot);
           toast('Drive から写真を取得中...', 'success');
-          b64 = await driveDownloadOnePhoto(projId, partId, slot);
+          const knownFid = typeof part.photos[slot]==='string' && !part.photos[slot].startsWith('data:') ? part.photos[slot] : null;
+          b64 = await driveDownloadOnePhoto(projId, partId, slot, knownFid);
+          console.log('[openPartSheet] Drive result:', slot, b64 ? 'got' : 'null');
         }
         slotData[slot]=b64;
         if(b64) setSlotImg(slot,b64);
@@ -672,15 +679,15 @@ async function saveSlot(slot){
   }
   const key=pkey(editPartProjId,editPartId,slot);
   await dbPut(key,slotData[slot]);
-  // Drive にアップロード
-  if(driveToken) driveUploadPhoto(editPartProjId,editPartId,slot,slotData[slot]).catch(()=>{});
-  // photos フラグを更新
+  // Drive にアップロードしてfileIdをphotos[slot]に保存
   const proj=projects.find(p=>p.id===editPartProjId);
   const part=(proj?.parts||[]).find(p=>p.id===editPartId);
-  if(part){
-    if(!part.photos) part.photos={};
-    part.photos[slot]=true;
-    saveMeta();
+  if(part){ if(!part.photos) part.photos={}; part.photos[slot]=true; saveMeta(); }
+  if(driveToken){
+    driveUploadPhoto(editPartProjId,editPartId,slot,slotData[slot]).then(fid=>{
+      if(!fid || !part) return;
+      part.photos[slot]=fid; saveMeta();
+    }).catch(()=>{});
   }
   const btn=document.getElementById('save-btn-'+slot);
   if(btn) btn.style.display='none';
@@ -715,9 +722,18 @@ async function savePart(){
   else proj.parts.push(part);
   saveMeta();closePartSheet();renderProjects();
   toast(editPartId?'部品を更新しました':'部品を追加しました','success');
-  // Drive に写真を非同期アップロード
-  for(const slot of['before','compare','after']){
-    if(slotData[slot]) driveUploadPhoto(editPartProjId,partId,slot,slotData[slot]).catch(()=>{});
+  // Drive に写真をアップロードし、fileIdをphotos[slot]に保存
+  if(driveToken){
+    for(const slot of['before','compare','after']){
+      if(slotData[slot]){
+        driveUploadPhoto(editPartProjId,partId,slot,slotData[slot]).then(fid=>{
+          if(!fid) return;
+          const p=projects.find(x=>x.id===editPartProjId);
+          const pt=(p?.parts||[]).find(x=>x.id===partId);
+          if(pt){ pt.photos[slot]=fid; saveMeta(); }
+        }).catch(()=>{});
+      }
+    }
   }
 }
 async function deletePart(){
@@ -1486,10 +1502,11 @@ async function ensureDriveFolders() {
   if (!driveToken) return;
   try {
     const root = await driveFindOrCreate(DRIVE_FOLDER, 'root');
-    if (!root) return;
+    if (!root) { console.warn('ensureDriveFolders: root not found'); return; }
     const photos  = await driveFindOrCreate('photos',  root);
     const exports = await driveFindOrCreate('exports', root);
     driveFolderIds = { root, photos, exports };
+    console.log('[folders] root:', root, 'photos:', photos, 'exports:', exports);
   } catch(e) { console.error('Drive folders:', e); }
 }
 
@@ -1569,10 +1586,12 @@ async function driveSheetSave() {
   for (const proj of projects) {
     for (const part of (proj.parts || [])) {
       // photos は {before:true/false,...} → 文字列化
+      // photos[slot]: fileId(文字列) or true or false をそのまま保存
+      const _ph = part.photos || {};
       const photosVal = JSON.stringify({
-        before:  !!part.photos?.before,
-        compare: !!part.photos?.compare,
-        after:   !!part.photos?.after,
+        before:  typeof _ph.before  === 'string' && !_ph.before.startsWith('data:')  ? _ph.before  : !!_ph.before,
+        compare: typeof _ph.compare === 'string' && !_ph.compare.startsWith('data:') ? _ph.compare : !!_ph.compare,
+        after:   typeof _ph.after   === 'string' && !_ph.after.startsWith('data:')   ? _ph.after   : !!_ph.after,
       });
       rows.push([
         proj.id        || '',
@@ -1647,11 +1666,11 @@ async function driveSheetLoad() {
     try { slotFrames = JSON.parse(slotFramesJson || '{}'); } catch(e) {}
     try {
       const p = JSON.parse(photosJson || '{}');
-      // "true"/"false" 文字列にも対応
+      // fileId(文字列)・true・false いずれも保持
       photos = {
-        before:  p.before  === true || p.before  === 'true',
-        compare: p.compare === true || p.compare === 'true',
-        after:   p.after   === true || p.after   === 'true',
+        before:  typeof p.before  === 'string' && p.before  !== 'true' && p.before  !== 'false' ? p.before  : (p.before  === true || p.before  === 'true'),
+        compare: typeof p.compare === 'string' && p.compare !== 'true' && p.compare !== 'false' ? p.compare : (p.compare === true || p.compare === 'true'),
+        after:   typeof p.after   === 'string' && p.after   !== 'true' && p.after   !== 'false' ? p.after   : (p.after   === true || p.after   === 'true'),
       };
     } catch(e) {}
 
@@ -1703,31 +1722,42 @@ async function driveLoadData() {
 }
 
 // ── 写真1枚をDriveから取得してIDBに保存 ───────────────────────
-async function driveDownloadOnePhoto(projId, partId, slot) {
-  if (!driveToken || !driveFolderIds.photos) return null;
+async function driveDownloadOnePhoto(projId, partId, slot, knownFileId=null) {
+  if (!driveToken) return null;
   try {
-    const fname = `${projId}_${partId}_${slot}.jpg`;
-    // name= クエリで検索（Drive は完全一致）
-    const q = `'${driveFolderIds.photos}' in parents and trashed=false and name='${fname}'`;
-    const res = await driveRequest('GET',
-      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`);
-    if (!res?.files?.length) return null;
-    const fid = res.files[0].id;
+    let fid = knownFileId;
+
+    if (!fid) {
+      // fileId不明 → フォルダ名前検索（フォールバック）
+      if (!driveFolderIds.photos) await ensureDriveFolders();
+      if (!driveFolderIds.photos) return null;
+      const fname = `${projId}_${partId}_${slot}.jpg`;
+      const q = `'${driveFolderIds.photos}' in parents and trashed=false and name='${fname}'`;
+      const res = await driveRequest('GET',
+        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`);
+      if (!res?.files?.length) { console.warn('[photo] not found:', fname); return null; }
+      fid = res.files[0].id;
+      console.log('[photo] found by name:', fname, fid);
+    } else {
+      console.log('[photo] using known fileId:', fid);
+    }
+
+    // fileId で直接ダウンロード
     const imgResp = await fetch(`https://www.googleapis.com/drive/v3/files/${fid}?alt=media`, {
       headers: { Authorization: 'Bearer ' + driveToken },
     });
-    if (!imgResp.ok) return null;
+    if (!imgResp.ok) { console.warn('[photo] download failed:', imgResp.status, fid); return null; }
+
     const blob = await imgResp.blob();
     const b64 = await new Promise(resolve => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result);
       reader.readAsDataURL(blob);
     });
-    const key = pkey(projId, partId, slot);
-    await dbPut(key, b64);
+    await dbPut(pkey(projId, partId, slot), b64);
     return b64;
   } catch(e) {
-    console.warn('driveDownloadOnePhoto:', e);
+    console.error('[photo] driveDownloadOnePhoto error:', e);
     return null;
   }
 }
@@ -1761,10 +1791,12 @@ async function driveDownloadAllPhotos(projList) {
         const existing = await dbGet(key).catch(() => null);
         if (existing) continue;
 
+        // fileId が既知ならfileMapより優先
+        const knownFid = typeof part.photos?.[slot]==='string' && !part.photos[slot].startsWith('data:') ? part.photos[slot] : null;
         const fname = `${proj.id}_${part.id}_${slot}.jpg`;
-        const fid = fileMap[fname];
+        const fid = knownFid || fileMap[fname];
         if (!fid) {
-          console.warn('driveDownloadAllPhotos: not found in Drive:', fname);
+          console.warn('driveDownloadAllPhotos: not found:', fname, '(no fileId in photos, not in fileMap)');
           continue;
         }
         const imgResp = await fetch(`https://www.googleapis.com/drive/v3/files/${fid}?alt=media`, {
