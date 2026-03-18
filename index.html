@@ -437,8 +437,7 @@ function saveMeta(){
   if(json.includes('data:image')){console.error('saveMeta: base64 leak detected, blocked');return;}
   try{localStorage.setItem('kp4-projects',json);}
   catch(e){toast('保存エラー: '+e.message,'error');}
-  // Drive にも非同期で同期
-  driveSaveData().catch(()=>{});
+  // ※ Drive保存は呼び出し元が明示的に driveSaveData() を呼ぶ
 }
 
 function showPage(name){
@@ -605,7 +604,7 @@ function saveProjectSheet(){
   if(!code&&!name){toast('管理番号または物件名称を入力してください','error');return;}
   if(editProjId){const p=projects.find(p=>p.id===editProjId);if(p){p.code=code;p.name=name;p.manager=manager;}}
   else projects.unshift({id:Date.now()+'_'+Math.random().toString(36).slice(2,6),code,name,manager,parts:[],expanded:true});
-  saveMeta();closeProjSheet();renderProjects();
+  saveMeta();closeProjSheet();renderProjects();driveSaveData().catch(()=>{});
   toast(editProjId?'物件情報を更新しました':'物件を追加しました','success');
 }
 async function deleteProject(){
@@ -614,7 +613,7 @@ async function deleteProject(){
   if(!confirm(`「${p?.name||p?.code||'この物件'}」を削除しますか？\n写真データもすべて削除されます。`))return;
   await dbDelPrefix(editProjId+'|');
   projects=projects.filter(p=>p.id!==editProjId);
-  saveMeta();closeProjSheet();renderProjects();toast('物件を削除しました','success');
+  saveMeta();closeProjSheet();renderProjects();driveSaveData().catch(()=>{});toast('物件を削除しました','success');
 }
 
 // 部品シート
@@ -689,6 +688,7 @@ async function saveSlot(slot){
       part.photos[slot]=fid; saveMeta();
     }).catch(()=>{});
   }
+  driveSaveData().catch(()=>{});
   const btn=document.getElementById('save-btn-'+slot);
   if(btn) btn.style.display='none';
   const slotNames={'before':'交換前','compare':'比較','after':'交換後'};
@@ -722,6 +722,8 @@ async function savePart(){
   else proj.parts.push(part);
   saveMeta();closePartSheet();renderProjects();
   toast(editPartId?'部品を更新しました':'部品を追加しました','success');
+  // メタデータをシートに保存
+  driveSaveData().catch(()=>{});
   // Drive に写真をアップロードし、fileIdをphotos[slot]に保存
   if(driveToken){
     for(const slot of['before','compare','after']){
@@ -730,7 +732,7 @@ async function savePart(){
           if(!fid) return;
           const p=projects.find(x=>x.id===editPartProjId);
           const pt=(p?.parts||[]).find(x=>x.id===partId);
-          if(pt){ pt.photos[slot]=fid; saveMeta(); }
+          if(pt){ pt.photos[slot]=fid; saveMeta(); driveSaveData().catch(()=>{}); }
         }).catch(()=>{});
       }
     }
@@ -742,7 +744,7 @@ async function deletePart(){
   if(!proj||!confirm('この部品を削除しますか？'))return;
   await dbDelPrefix(`${editPartProjId}|${editPartId}|`);
   proj.parts=proj.parts.filter(p=>p.id!==editPartId);
-  saveMeta();closePartSheet();renderProjects();toast('削除しました','success');
+  saveMeta();driveSaveData().catch(()=>{});closePartSheet();renderProjects();toast('削除しました','success');
 }
 
 // 写真スロット
@@ -1709,6 +1711,8 @@ async function driveLoadData() {
       saveMeta();
       renderProjects();
       toast('Driveからデータを復元しました ☁️', 'success');
+      // 復元したデータでシートを最新化（FileIdを反映）
+      driveSaveData().catch(()=>{});
     } else {
       if (projects.length > 0) {
         await driveSaveData();
@@ -1716,6 +1720,9 @@ async function driveLoadData() {
       }
     }
     console.log('[sync] starting photo migration/download...');
+    // IDBにある写真でDrive未アップロードのものを先に送信
+    driveUploadMissingPhotos(projects).catch(e => console.error('[upload] error:', e));
+    // Drive上の写真をIDBに取り込む
     driveMigrateAndDownloadPhotos(projects).catch(e => console.error('[sync] migrate error:', e));
   } catch(e) {
     console.error('driveLoadData error:', e);
@@ -1764,6 +1771,40 @@ async function driveDownloadOnePhoto(projId, partId, slot, knownFileId=null) {
 }
 
 // ── FileId未記録の写真を一括移行してからダウンロード ──────────
+// ── IDBにある写真でDriveに未アップロードのものを送信 ──────────
+async function driveUploadMissingPhotos(projList) {
+  if (!driveToken) return;
+  if (!driveFolderIds.photos) await ensureDriveFolders();
+  if (!driveFolderIds.photos) return;
+  let uploaded = 0;
+  for (const proj of projList) {
+    for (const part of (proj.parts||[])) {
+      for (const slot of ['before','compare','after']) {
+        // FileIdがなく(true)、IDBに写真がある場合のみ対象
+        if (part.photos?.[slot] !== true) continue;
+        const idbKey = pkey(proj.id, part.id, slot);
+        const b64 = await dbGet(idbKey).catch(()=>null);
+        if (!b64) continue;
+        console.log(`[upload] uploading missing photo: ${part.name} ${slot}`);
+        const fid = await driveUploadPhoto(proj.id, part.id, slot, b64);
+        if (fid) {
+          part.photos[slot] = fid;
+          uploaded++;
+          console.log(`[upload] done: ${part.name} ${slot} → ${fid}`);
+        }
+      }
+    }
+  }
+  if (uploaded > 0) {
+    console.log(`[upload] ${uploaded} photos uploaded to Drive`);
+    saveMeta();
+    driveSaveData();
+    toast(`写真 ${uploaded}枚をDriveにアップロードしました ☁️`, 'success');
+  } else {
+    console.log('[upload] no missing photos to upload');
+  }
+}
+
 async function driveMigrateAndDownloadPhotos(projList) {
   if (!driveToken) return;
   if (!driveFolderIds.photos) await ensureDriveFolders();
