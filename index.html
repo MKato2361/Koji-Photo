@@ -1688,17 +1688,20 @@ async function driveSheetLoad() {
 
 // ── Drive から写真をダウンロードしてIDBへ保存（他端末同期用）──
 async function driveLoadData() {
-  // スプレッドシートからプロジェクトデータを復元
+  console.log('[sync] driveLoadData start, token:', !!driveToken, 'folderIds:', JSON.stringify(driveFolderIds));
   try {
     const sheetProjects = await driveSheetLoad();
+    console.log('[sync] sheetProjects:', sheetProjects ? sheetProjects.length + ' projects' : 'null');
     if (sheetProjects && sheetProjects.length > 0) {
-      // ローカルと統合（シートを正とする）
+      // photos の状態をログ
+      sheetProjects.forEach(p => p.parts?.forEach(pt => {
+        const ph = pt.photos || {};
+        console.log(`[sync] part ${pt.name}: photos=`, JSON.stringify(ph));
+      }));
       const local = projects;
-      // シートに無いプロジェクトはローカルから補完
       const sheetIds = new Set(sheetProjects.map(p => p.id));
       const localOnly = local.filter(p => !sheetIds.has(p.id));
       projects = [...sheetProjects, ...localOnly];
-      // expanded 状態はローカルから引き継ぐ
       projects.forEach(sp => {
         const lp = local.find(p => p.id === sp.id);
         if (lp) sp.expanded = lp.expanded;
@@ -1707,14 +1710,13 @@ async function driveLoadData() {
       renderProjects();
       toast('Driveからデータを復元しました ☁️', 'success');
     } else {
-      // シートが空 → ローカルデータをシートに書き込んで初期化
       if (projects.length > 0) {
         await driveSaveData();
         toast('ローカルデータをDriveに同期しました ✅', 'success');
       }
     }
-    // FileId未記録の写真を自動でFileIdに移行してからダウンロード
-    driveMigrateAndDownloadPhotos(projects).catch(() => {});
+    console.log('[sync] starting photo migration/download...');
+    driveMigrateAndDownloadPhotos(projects).catch(e => console.error('[sync] migrate error:', e));
   } catch(e) {
     console.error('driveLoadData error:', e);
     toast('Drive復元エラー: ' + e.message, 'error');
@@ -1806,18 +1808,22 @@ async function driveMigrateAndDownloadPhotos(projList) {
     }
   }
 
+  console.log(`[migrate] migrated=${migrated}, fileMap keys=${Object.keys(fileMap).length}`);
   if (migrated > 0) {
-    console.log(`[migrate] ${migrated} photos migrated to fileId`);
-    saveMeta();          // localStorage更新
-    driveSaveData();     // スプレッドシートにも反映
+    saveMeta();
+    driveSaveData();
   }
 
-  // 続けて通常のダウンロード（IDBにない写真を取得）
+  // 続けて通常のダウンロード
+  console.log('[migrate] calling driveDownloadAllPhotos...');
   await driveDownloadAllPhotos(projList, fileMap);
+  console.log('[migrate] driveDownloadAllPhotos done');
 }
 
 async function driveDownloadAllPhotos(projList, fileMap=null) {
-  if (!driveToken || !driveFolderIds.photos) return;
+  console.log('[dlAll] start, token:', !!driveToken, 'photosFolder:', driveFolderIds.photos, 'fileMap:', fileMap ? Object.keys(fileMap).length : 'null');
+  if (!driveToken) { console.warn('[dlAll] no token'); return; }
+  if (!driveFolderIds.photos) { console.warn('[dlAll] no photos folder'); return; }
 
   // fileMapが未渡しの場合のみフォルダ一括取得
   if (!fileMap) {
