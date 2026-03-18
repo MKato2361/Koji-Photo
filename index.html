@@ -1730,21 +1730,20 @@ async function driveDownloadOnePhoto(projId, partId, slot, knownFileId=null) {
     let fid = knownFileId;
 
     if (!fid) {
-      // fileId不明 → フォルダ名前検索（フォールバック）
       if (!driveFolderIds.photos) await ensureDriveFolders();
       if (!driveFolderIds.photos) return null;
-      const fname = `${projId}__${partId}__${slot}.jpg`;
-      const q = `'${driveFolderIds.photos}' in parents and trashed=false and name='${fname}'`;
-      const res = await driveRequest('GET',
-        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`);
-      if (!res?.files?.length) { console.warn('[photo] not found:', fname); return null; }
-      fid = res.files[0].id;
-      console.log('[photo] found by name:', fname, fid);
-    } else {
-      console.log('[photo] using known fileId:', fid);
+      // 新形式・旧形式の両方を検索
+      const newFname = `${projId}__${partId}__${slot}.jpg`;
+      const oldFname = `${projId}_${partId}_${slot}.jpg`;
+      for (const fname of [newFname, oldFname]) {
+        const q = `'${driveFolderIds.photos}' in parents and trashed=false and name='${fname}'`;
+        const res = await driveRequest('GET',
+          `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`);
+        if (res?.files?.length) { fid = res.files[0].id; break; }
+      }
+      if (!fid) { console.warn('[photo] not found:', newFname); return null; }
     }
 
-    // fileId で直接ダウンロード
     const imgResp = await fetch(`https://www.googleapis.com/drive/v3/files/${fid}?alt=media`, {
       headers: { Authorization: 'Bearer ' + driveToken },
     });
@@ -1766,81 +1765,67 @@ async function driveDownloadOnePhoto(projId, partId, slot, knownFileId=null) {
 
 // ── FileId未記録の写真を一括移行してからダウンロード ──────────
 async function driveMigrateAndDownloadPhotos(projList) {
-  // まずフォルダ内の全ファイルを一括取得してfileMapを作る
   if (!driveToken) return;
   if (!driveFolderIds.photos) await ensureDriveFolders();
   if (!driveFolderIds.photos) return;
 
-  // フォルダ内ファイル一覧取得
+  // Drive photosフォルダの全ファイルを取得
   let allFiles = [], pageToken = null;
   const folderQ = encodeURIComponent(`'${driveFolderIds.photos}' in parents and trashed=false`);
   do {
-    const url = `https://www.googleapis.com/drive/v3/files?q=${folderQ}&fields=files(id,name)&pageSize=1000${pageToken ? '&pageToken='+pageToken : ''}`;
+    const url = `https://www.googleapis.com/drive/v3/files?q=${folderQ}&fields=files(id,name)&pageSize=1000${pageToken?'&pageToken='+pageToken:''}`;
     const res = await driveRequest('GET', url);
     if (!res?.files) break;
     allFiles = allFiles.concat(res.files);
     pageToken = res.nextPageToken || null;
   } while(pageToken);
 
-  const fileMap = {};
-  allFiles.forEach(f => { fileMap[f.name] = f.id; });
   console.log(`[migrate] Drive photos folder: ${allFiles.length} files`);
 
-  // 旧形式(_区切り)のファイルを新形式(__区切り)にリネーム
-  let renamed = 0;
-  const renameMap = {}; // 旧fname → 新fname
-  for (const [fname, fid] of Object.entries(fileMap)) {
-    // 旧形式: projId_partId_slot.jpg（__ を含まない）
-    if (!fname.includes('__')) {
-      // 末尾から slot を取り出す
-      const slotMatch = fname.match(/_(before|compare|after)\.jpg$/);
-      if (slotMatch) {
-        const slot = slotMatch[1];
-        const base = fname.slice(0, fname.lastIndexOf('_' + slot));
-        // base = projId_partId → 最後の _ で分割
-        const lastUs = base.lastIndexOf('_');
-        if (lastUs > 0) {
-          const pId = base.slice(0, lastUs);
-          const ptId = base.slice(lastUs + 1);
-          const newFname = `${pId}__${ptId}__${slot}.jpg`;
-          renameMap[fname] = { fid, newFname, pId, ptId, slot };
-        }
-      }
+  // ファイル名から projId・partId・slot を抽出してマップ化
+  // 旧形式: {projId}_{partId}_{slot}.jpg  ← projId/partId自体に_が含まれる問題あり
+  // 新形式: {projId}__{partId}__{slot}.jpg
+  // → partIdとslotを末尾から確定し、残りをprojIdとして扱う
+  const slots = ['before', 'compare', 'after'];
+
+  // key: "projId|partId|slot" → fileId
+  const driveIndex = {};
+  for (const {id: fid, name: fname} of allFiles) {
+    // 新形式(__区切り)
+    const newMatch = fname.match(/^(.+)__(.+)__(before|compare|after)\.jpg$/);
+    if (newMatch) {
+      driveIndex[`${newMatch[1]}|${newMatch[2]}|${newMatch[3]}`] = fid;
+      continue;
+    }
+    // 旧形式: 末尾から slot を確定し、残りを projId+partId として扱う
+    // projId = timestamp_xxxx (8桁数字_4桁英数)
+    // partId = timestamp_xxxx (同形式)
+    // → timestamp は13桁数字
+    const oldMatch = fname.match(/^(\d+_\w{4})_(\d+_\w{4})_(before|compare|after)\.jpg$/);
+    if (oldMatch) {
+      driveIndex[`${oldMatch[1]}|${oldMatch[2]}|${oldMatch[3]}`] = fid;
+      console.log(`[migrate] indexed old-format: ${fname}`);
     }
   }
 
-  // Driveでリネーム（metadata PATCH）
-  for (const [oldFname, {fid, newFname}] of Object.entries(renameMap)) {
-    try {
-      const r = await fetch(`https://www.googleapis.com/drive/v3/files/${fid}`, {
-        method: 'PATCH',
-        headers: { Authorization: 'Bearer ' + driveToken, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newFname }),
-      });
-      if (r.ok) {
-        fileMap[newFname] = fid;
-        delete fileMap[oldFname];
-        renamed++;
-        console.log(`[migrate] renamed: ${oldFname} → ${newFname}`);
-      }
-    } catch(e) { console.warn('[migrate] rename failed:', oldFname, e); }
-  }
-  if (renamed > 0) console.log(`[migrate] ${renamed} files renamed on Drive`);
+  console.log(`[migrate] driveIndex keys: ${Object.keys(driveIndex).length}`);
 
-  // FileId未記録の部品にFileIdを付与（新ファイル名で照合）
+  // photos=true の部品にFileIdを付与
   let migrated = 0;
   for (const proj of projList) {
-    for (const part of (proj.parts || [])) {
+    for (const part of (proj.parts||[])) {
       let changed = false;
-      for (const slot of ['before','compare','after']) {
-        const val = part.photos?.[slot];
-        if (val === true) {
-          const fname = `${proj.id}__${part.id}__${slot}.jpg`;
-          const fid = fileMap[fname];
+      for (const slot of slots) {
+        if (part.photos?.[slot] === true) {
+          const key = `${proj.id}|${part.id}|${slot}`;
+          const fid = driveIndex[key];
           if (fid) {
             part.photos[slot] = fid;
             changed = true;
             migrated++;
+            console.log(`[migrate] fileId set: ${part.name} ${slot} → ${fid}`);
+          } else {
+            console.warn(`[migrate] not found in Drive: ${proj.id}|${part.id}|${slot}`);
           }
         }
       }
@@ -1848,68 +1833,74 @@ async function driveMigrateAndDownloadPhotos(projList) {
     }
   }
 
-  console.log(`[migrate] renamed=${renamed}, migrated=${migrated}, fileMap keys=${Object.keys(fileMap).length}`);
-  if (migrated > 0 || renamed > 0) {
+  if (migrated > 0) {
+    console.log(`[migrate] ${migrated} photos got fileId, saving...`);
     saveMeta();
     driveSaveData();
   }
 
-  // 続けて通常のダウンロード
+  // ファイルマップ（新旧両対応）を渡してダウンロード
   console.log('[migrate] calling driveDownloadAllPhotos...');
-  await driveDownloadAllPhotos(projList, fileMap);
-  console.log('[migrate] driveDownloadAllPhotos done');
+  await driveDownloadAllPhotos(projList, driveIndex);
+  console.log('[migrate] done');
 }
 
-async function driveDownloadAllPhotos(projList, fileMap=null) {
-  console.log('[dlAll] start, token:', !!driveToken, 'photosFolder:', driveFolderIds.photos, 'fileMap:', fileMap ? Object.keys(fileMap).length : 'null');
+
+async function driveDownloadAllPhotos(projList, driveIndex=null) {
   if (!driveToken) { console.warn('[dlAll] no token'); return; }
   if (!driveFolderIds.photos) { console.warn('[dlAll] no photos folder'); return; }
 
-  // fileMapが未渡しの場合のみフォルダ一括取得
-  if (!fileMap) {
+  // driveIndexが未渡しの場合は自前で構築
+  if (!driveIndex) {
     let allFiles = [], pageToken = null;
     const folderQ = encodeURIComponent(`'${driveFolderIds.photos}' in parents and trashed=false`);
     do {
-      const url = `https://www.googleapis.com/drive/v3/files?q=${folderQ}&fields=files(id,name)&pageSize=1000${pageToken ? '&pageToken=' + pageToken : ''}`;
+      const url = `https://www.googleapis.com/drive/v3/files?q=${folderQ}&fields=files(id,name)&pageSize=1000${pageToken?'&pageToken='+pageToken:''}`;
       const res = await driveRequest('GET', url);
       if (!res?.files) break;
       allFiles = allFiles.concat(res.files);
       pageToken = res.nextPageToken || null;
-    } while (pageToken);
-    fileMap = {};
-    allFiles.forEach(f => { fileMap[f.name] = f.id; });
-    console.log(`driveDownloadAllPhotos: ${allFiles.length} files in photos folder`);
+    } while(pageToken);
+    driveIndex = {};
+    for (const {id: fid, name: fname} of allFiles) {
+      const nm = fname.match(/^(.+)__(.+)__(before|compare|after)\.jpg$/);
+      if (nm) { driveIndex[`${nm[1]}|${nm[2]}|${nm[3]}`] = fid; continue; }
+      const om = fname.match(/^(\d+_\w{4})_(\d+_\w{4})_(before|compare|after)\.jpg$/);
+      if (om) driveIndex[`${om[1]}|${om[2]}|${om[3]}`] = fid;
+    }
+    console.log(`[dlAll] built driveIndex: ${Object.keys(driveIndex).length} entries`);
   }
 
   let synced = 0;
   for (const proj of projList) {
-    for (const part of (proj.parts || [])) {
+    for (const part of (proj.parts||[])) {
       for (const slot of ['before','compare','after']) {
         if (!part.photos?.[slot]) continue;
-        const key = pkey(proj.id, part.id, slot);
-        const existing = await dbGet(key).catch(() => null);
+        const idbKey = pkey(proj.id, part.id, slot);
+        const existing = await dbGet(idbKey).catch(()=>null);
         if (existing) continue;
 
-        // fileId が既知ならfileMapより優先
-        const knownFid = typeof part.photos?.[slot]==='string' && !part.photos[slot].startsWith('data:') ? part.photos[slot] : null;
-        const fname = `${proj.id}__${part.id}__${slot}.jpg`;
-        const fid = knownFid || fileMap[fname];
+        // 1. photos[slot] が FileId文字列なら直接使用
+        // 2. driveIndex[projId|partId|slot] を参照
+        const knownFid = typeof part.photos[slot]==='string' && !part.photos[slot].startsWith('data:') ? part.photos[slot] : null;
+        const fid = knownFid || driveIndex[`${proj.id}|${part.id}|${slot}`];
         if (!fid) {
-          console.warn('driveDownloadAllPhotos: not found:', fname, '(no fileId in photos, not in fileMap)');
+          console.warn(`[dlAll] no fileId: ${proj.id}|${part.id}|${slot}`);
           continue;
         }
         const imgResp = await fetch(`https://www.googleapis.com/drive/v3/files/${fid}?alt=media`, {
           headers: { Authorization: 'Bearer ' + driveToken },
         });
-        if (!imgResp.ok) continue;
+        if (!imgResp.ok) { console.warn('[dlAll] fetch failed:', imgResp.status, fid); continue; }
         const blob = await imgResp.blob();
-        const b64  = await new Promise(resolve => {
+        const b64 = await new Promise(resolve => {
           const reader = new FileReader();
           reader.onload = () => resolve(reader.result);
           reader.readAsDataURL(blob);
         });
-        await dbPut(key, b64);
+        await dbPut(idbKey, b64);
         synced++;
+        console.log(`[dlAll] saved: ${part.name} ${slot}`);
       }
     }
   }
@@ -1917,7 +1908,7 @@ async function driveDownloadAllPhotos(projList, fileMap=null) {
     renderProjects();
     toast(`写真 ${synced}枚をDriveから同期しました ☁️`, 'success');
   } else {
-    console.log('driveDownloadAllPhotos: all photos already in IDB or not found');
+    console.log('[dlAll] all photos already in IDB or no fileId found');
   }
 }
 
