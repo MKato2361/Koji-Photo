@@ -4,6 +4,7 @@
 - db.xlsx から管理番号→物件名称・担当者を検索する /api/lookup エンドポイント
 """
 
+import logging
 from flask import Flask, request, jsonify, send_file, render_template
 from flask_cors import CORS
 from PIL import Image, ImageDraw
@@ -12,11 +13,17 @@ import io, base64, os, re, zipfile
 from lxml import etree
 import openpyxl
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024
 
-# GitHub Pages など別オリジンからのアクセスを許可
-CORS(app, resources={r"/api/*": {"origins": "*", "expose_headers": ["Content-Disposition"]}})
+# 許可オリジンは環境変数 ALLOWED_ORIGINS で指定（カンマ区切り）。
+# 未設定時はローカル開発用に localhost のみ許可。
+_raw_origins = os.environ.get('ALLOWED_ORIGINS', 'http://localhost:5000')
+ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(',') if o.strip()]
+CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGINS, "expose_headers": ["Content-Disposition"]}})
 
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), 'template.xlsx')
 DB_PATH       = os.path.join(os.path.dirname(__file__), 'db.xlsx')
@@ -30,12 +37,19 @@ A_NS   = 'http://schemas.openxmlformats.org/drawingml/2006/main'
 # ══════════════════════════════════════════════════════
 # DB検索  db.xlsx: A=管理番号 B=物件名称 C=担当者
 # ══════════════════════════════════════════════════════
-def load_db():
+_db_cache: dict = {}
+_db_mtime: float = 0.0
+
+def load_db() -> dict:
+    global _db_cache, _db_mtime
     if not os.path.exists(DB_PATH):
         return {}
+    mtime = os.path.getmtime(DB_PATH)
+    if mtime == _db_mtime and _db_cache:
+        return _db_cache
     wb = openpyxl.load_workbook(DB_PATH, read_only=True, data_only=True)
     ws = wb.active
-    db = {}
+    db: dict = {}
     for row in ws.iter_rows(min_row=2, values_only=True):
         if not row or row[0] is None:
             continue
@@ -45,7 +59,10 @@ def load_db():
         if code:
             db[code] = {'name': name, 'manager': manager}
     wb.close()
-    return db
+    _db_cache = db
+    _db_mtime = mtime
+    logger.info('db.xlsx を再読込しました (%d 件)', len(db))
+    return _db_cache
 
 @app.route('/api/lookup')
 def lookup():
@@ -374,12 +391,12 @@ def export_excel():
         date_str     = date_digits[:8].ljust(8,'0') if date_digits else ''
         # "2025115" → "20250115" に0埋め
         if len(date_digits) >= 4:
-            import datetime as _dt
             try:
                 nums = [int(x) for x in re.findall(r'[0-9]+', first_date)]
                 if len(nums) >= 3:
                     date_str = f'{nums[0]:04d}{nums[1]:02d}{nums[2]:02d}'
-            except: pass
+            except ValueError:
+                pass
         name_parts = filter(None, [
             project.get('code',''),
             project.get('name',''),
@@ -389,9 +406,9 @@ def export_excel():
         fname = re.sub(r'[^\w\u3040-\u9fff._-]', '_', '_'.join(name_parts)) + '.xlsx'
         return send_file(buf, as_attachment=True, download_name=fname,
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    except Exception as e:
-        import traceback; traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+    except Exception:
+        logger.exception('export_excel で予期しないエラーが発生しました')
+        return jsonify({'error': 'Excel生成中にエラーが発生しました。サーバーログを確認してください。'}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
