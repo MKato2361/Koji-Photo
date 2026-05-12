@@ -171,28 +171,39 @@ input[type=range]::-moz-range-track{height:6px;border-radius:3px;background:rgba
 .fe-hint{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);
          background:rgba(0,0,0,.7);color:rgba(255,255,255,.65);font-size:11px;
          padding:4px 10px;border-radius:20px;pointer-events:none;white-space:nowrap;}
+/* ── SEARCH ── */
+#search-row{padding:0 14px 10px;display:none;border-top:1px solid var(--bdr);}
+#proj-search{background:var(--sur2);border:1px solid var(--bdr);border-radius:22px;color:var(--txt);font-family:inherit;font-size:14px;padding:8px 16px 8px 36px;outline:none;width:100%;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%238b949e' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398l3.85 3.85a1 1 0 0 0 1.415-1.415zm-5.242 1.15a5 5 0 1 1 0-10 5 5 0 0 1 0 10'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:12px center;}
+#proj-search:focus{border-color:var(--acc);box-shadow:0 0 0 2px rgba(240,165,0,.1);}
+#search-count{font-size:11px;color:var(--mut);text-align:right;margin-top:4px;min-height:14px;}
 </style>
 </head>
 <body>
-<div class="hdr" style="display:flex;align-items:center;justify-content:space-between;padding:0 14px;">
-  <div class="logo">
-    <div class="logo-icon">📸</div>
-    <div><div class="logo-txt">KOJI PHOTO</div><div class="logo-sub">工事写真 Excel 自動生成</div></div>
+<div class="hdr" style="flex-direction:column;align-items:stretch;padding:0;">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:0 14px;padding-top:calc(10px + var(--safe-top));min-height:56px;">
+    <div class="logo">
+      <div class="logo-icon">📸</div>
+      <div><div class="logo-txt">KOJI PHOTO</div><div class="logo-sub">工事写真 Excel 自動生成</div></div>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button id="hdr-btn-list" onclick="showPage('list')"
+        style="background:var(--acc);color:#000;border:none;border-radius:10px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;">
+        🏗️ 物件一覧
+      </button>
+      <button id="hdr-btn-settings" onclick="showPage('settings')"
+        style="background:var(--sur2);color:var(--txt);border:1px solid var(--bdr);border-radius:10px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;">
+        ⚙️ 設定
+      </button>
+      <button id="hdr-btn-sync" onclick="hdrSync()"
+        style="background:var(--sur2);color:var(--txt);border:1px solid var(--bdr);border-radius:10px;padding:8px 12px;font-size:18px;font-weight:700;cursor:pointer;display:none;"
+        title="Driveと同期">
+        ☁️
+      </button>
+    </div>
   </div>
-  <div style="display:flex;gap:8px;">
-    <button id="hdr-btn-list" onclick="showPage('list')"
-      style="background:var(--acc);color:#000;border:none;border-radius:10px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;">
-      🏗️ 物件一覧
-    </button>
-    <button id="hdr-btn-settings" onclick="showPage('settings')"
-      style="background:var(--sur2);color:var(--txt);border:1px solid var(--bdr);border-radius:10px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;">
-      ⚙️ 設定
-    </button>
-    <button id="hdr-btn-sync" onclick="hdrSync()"
-      style="background:var(--sur2);color:var(--txt);border:1px solid var(--bdr);border-radius:10px;padding:8px 12px;font-size:18px;font-weight:700;cursor:pointer;display:none;"
-      title="Driveと同期">
-      ☁️
-    </button>
+  <div id="search-row">
+    <input id="proj-search" type="search" placeholder="管理番号 または 物件名で検索…" oninput="onSearchInput(this.value)" autocomplete="off">
+    <div id="search-count"></div>
   </div>
 </div>
 <div class="main">
@@ -440,10 +451,46 @@ function saveMeta(){
   // ※ Drive保存は呼び出し元が明示的に driveSaveData() を呼ぶ
 }
 
+let searchQuery='';
+let searchTimer=null;
+
+function onSearchInput(val){
+  clearTimeout(searchTimer);
+  searchTimer=setTimeout(()=>{searchQuery=val.trim();renderProjects();},150);
+}
+
+// バイグラム（2文字ペア）セットを生成
+function bigrams(str){
+  const s=new Set();
+  for(let i=0;i<str.length-1;i++) s.add(str.slice(i,i+2));
+  return s;
+}
+
+function matchesSearch(proj){
+  if(!searchQuery) return true;
+  const q=searchQuery.toLowerCase();
+  const code=(proj.code||'').toLowerCase();
+  const name=(proj.name||'').toLowerCase();
+  // 管理番号: 部分一致
+  if(code.includes(q)) return true;
+  // 物件名: 部分一致（完全サブストリング）
+  if(name.includes(q)) return true;
+  // 物件名: バイグラムあいまい検索（3文字以上のクエリのみ / 一致率60%以上）
+  if(q.length>=3 && name.length>=2){
+    const qBgs=[...bigrams(q)];
+    const nBgs=bigrams(name);
+    const hits=qBgs.filter(bg=>nBgs.has(bg)).length;
+    if(hits/qBgs.length>=0.6) return true;
+  }
+  return false;
+}
+
 function showPage(name){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.getElementById('page-'+name).classList.add('active');
   document.getElementById('fab-btn').style.display=name==='list'?'flex':'none';
+  const sr=document.getElementById('search-row');
+  if(sr) sr.style.display=name==='list'?'block':'none';
   if(name==='list')renderProjects();
   if(name==='settings')setTimeout(drawFramePreview,50);
   // ヘッダーボタンのアクティブ状態
@@ -461,7 +508,14 @@ function showPage(name){
 function renderProjects(){
   const c=document.getElementById('proj-list');
   if(!projects.length){c.innerHTML=`<div class="empty-state"><div class="ei">🏗️</div><h3>物件が登録されていません</h3><p>右下の「＋」ボタンから<br>物件を追加してください</p></div>`;return;}
-  c.innerHTML=projects.map(projCardHtml).join('');
+  const filtered=projects.filter(matchesSearch);
+  const countEl=document.getElementById('search-count');
+  if(countEl){
+    if(searchQuery) countEl.textContent=`${filtered.length} / ${projects.length} 件`;
+    else countEl.textContent='';
+  }
+  if(!filtered.length){c.innerHTML=`<div class="empty-state"><div class="ei">🔍</div><h3>該当する物件がありません</h3><p>別のキーワードで試してください</p></div>`;return;}
+  c.innerHTML=filtered.map(projCardHtml).join('');
   // サムネイルを非同期で読み込む（IDBになければDriveから取得）
   projects.forEach(proj=>{
     (proj.parts||[]).forEach(part=>{
@@ -2115,6 +2169,9 @@ initFrameSettings();
       toast('古いデータを移行しました（写真はIDBへ）','success');
     }
   }
+  // 初期表示は list ページなので検索行を表示
+  const sr=document.getElementById('search-row');
+  if(sr) sr.style.display='block';
   renderProjects();
 })();
 </script>
