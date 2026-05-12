@@ -602,8 +602,22 @@ function saveProjectSheet(){
   const name=(document.getElementById('ps-name').value||'').trim();
   const manager=(document.getElementById('ps-manager').value||'').trim();
   if(!code&&!name){toast('管理番号または物件名称を入力してください','error');return;}
-  if(editProjId){const p=projects.find(p=>p.id===editProjId);if(p){p.code=code;p.name=name;p.manager=manager;}}
-  else projects.unshift({id:Date.now()+'_'+Math.random().toString(36).slice(2,6),code,name,manager,parts:[],expanded:true});
+  if(editProjId){
+    const p=projects.find(p=>p.id===editProjId);
+    if(p){p.code=code;p.name=name;p.manager=manager;}
+  } else {
+    // 同じ管理番号の物件が既にあれば、新規作成せず既存にマージ
+    const existing=code?projects.find(p=>p.code===code):null;
+    if(existing){
+      existing.name=name||existing.name;
+      existing.manager=manager||existing.manager;
+      existing.expanded=true;
+      saveMeta();closeProjSheet();renderProjects();driveSaveData().catch(()=>{});
+      toast(`管理番号 ${code} の既存物件に統合しました`,'success');
+      return;
+    }
+    projects.unshift({id:Date.now()+'_'+Math.random().toString(36).slice(2,6),code,name,manager,parts:[],expanded:true});
+  }
   saveMeta();closeProjSheet();renderProjects();driveSaveData().catch(()=>{});
   toast(editProjId?'物件情報を更新しました':'物件を追加しました','success');
 }
