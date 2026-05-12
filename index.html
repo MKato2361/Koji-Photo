@@ -466,22 +466,28 @@ function bigrams(str){
   return s;
 }
 
-function matchesSearch(proj){
-  if(!searchQuery) return true;
-  const q=searchQuery.toLowerCase();
-  const code=(proj.code||'').toLowerCase();
-  const name=(proj.name||'').toLowerCase();
-  // 管理番号: 部分一致
-  if(code.includes(q)) return true;
-  // 物件名: 部分一致（完全サブストリング）
-  if(name.includes(q)) return true;
-  // 物件名: バイグラムあいまい検索（3文字以上のクエリのみ / 一致率60%以上）
-  if(q.length>=3 && name.length>=2){
+function fuzzyMatch(target, q){
+  if(!target) return false;
+  const t=target.toLowerCase();
+  if(t.includes(q)) return true;
+  if(q.length>=3 && t.length>=2){
     const qBgs=[...bigrams(q)];
-    const nBgs=bigrams(name);
+    const nBgs=bigrams(t);
     const hits=qBgs.filter(bg=>nBgs.has(bg)).length;
     if(hits/qBgs.length>=0.6) return true;
   }
+  return false;
+}
+
+function matchesSearch(proj){
+  if(!searchQuery) return true;
+  const q=searchQuery.toLowerCase();
+  // 管理番号: 部分一致
+  if((proj.code||'').toLowerCase().includes(q)) return true;
+  // 物件名: あいまい検索
+  if(fuzzyMatch(proj.name, q)) return true;
+  // 部品名: いずれか1つでもあいまい一致
+  if((proj.parts||[]).some(p=>fuzzyMatch(p.name, q))) return true;
   return false;
 }
 
