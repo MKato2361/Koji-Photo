@@ -20,9 +20,10 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024
 
 # 許可オリジンは環境変数 ALLOWED_ORIGINS で指定（カンマ区切り）。
-# 未設定時はローカル開発用に localhost のみ許可。
-_raw_origins = os.environ.get('ALLOWED_ORIGINS', 'http://localhost:5000')
-ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(',') if o.strip()]
+# 本番で絞る場合: ALLOWED_ORIGINS=https://example.com,https://other.com
+# 未設定時はすべてのオリジンを許可（内部ツール向けデフォルト）。
+_raw_origins = os.environ.get('ALLOWED_ORIGINS', '*')
+ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(',') if o.strip()] if _raw_origins != '*' else '*'
 CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGINS, "expose_headers": ["Content-Disposition"]}})
 
 TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), 'template.xlsx')

@@ -581,7 +581,12 @@ async function lookupCode(codeArg){
     const d=await r.json();
     if(r.ok&&d.found){applyLookup(code,d.name||'',d.manager||'');res.style.background='rgba(63,185,80,.08)';res.style.border='1px solid rgba(63,185,80,.3)';res.innerHTML=`✅ <b>${esc(code)}</b> ${esc(d.name)} 担当:${esc(d.manager)}`;}
     else{applyLookup(code,'','');res.style.background='rgba(248,81,73,.08)';res.style.border='1px solid rgba(248,81,73,.3)';res.innerHTML=`❌ ${esc(code)} はDBに見つかりません。`;}
-  }catch(e){applyLookup(code,'','');res.style.background='rgba(248,81,73,.08)';res.style.border='1px solid rgba(248,81,73,.3)';res.innerHTML=`❌ 接続エラー: ${e.message}`;}
+  }catch(e){
+    applyLookup(code,'','');
+    res.style.background='rgba(248,81,73,.08)';res.style.border='1px solid rgba(248,81,73,.3)';
+    const hint=e.message==='Failed to fetch'?'サーバーが起動しているか、設定のサーバーURLが正しいか確認してください。':e.message;
+    res.innerHTML=`❌ 接続エラー: ${hint}`;
+  }
 }
 function applyLookup(code,name,manager){document.getElementById('ps-code-display').textContent=code||'—';document.getElementById('ps-name').value=name;document.getElementById('ps-manager').value=manager;}
 
