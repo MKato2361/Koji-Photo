@@ -1352,13 +1352,21 @@ function initDrive() {
       await driveLoadData();
     }, 800);
   } else {
-    // トークン切れでもClientIDがあれば自動サイレントログイン試行
+    // トークン切れ: ポップアップを出さず「再接続」ボタンを表示するのみ
+    updateDriveStatus(false);
     if (clientId) {
-      setTimeout(() => driveAutoRefresh(), 500);
-    } else {
-      updateDriveStatus(false);
+      const reAuthBtn = document.getElementById('drive-reauth-btn');
+      if (reAuthBtn) reAuthBtn.style.display = 'inline-flex';
     }
   }
+
+  // タブが再表示されたとき（スリープ復帰など）にサイレントリフレッシュ
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (!driveToken) return;
+    const exp = parseInt(localStorage.getItem('drive-token-expiry') || '0');
+    if (Date.now() > exp - 60000) driveAutoRefresh();
+  });
 }
 
 function scheduleDriveRefresh(expiry) {
@@ -1379,7 +1387,11 @@ function driveAutoRefresh() {
       callback: async (resp) => {
         if (resp.error) {
           console.warn('Drive auto-refresh failed:', resp.error);
+          driveToken = null;
           updateDriveStatus(false);
+          // ポップアップを出さず再接続ボタンを表示
+          const reAuthBtn = document.getElementById('drive-reauth-btn');
+          if (reAuthBtn) reAuthBtn.style.display = 'inline-flex';
           return;
         }
         driveToken = resp.access_token;
@@ -1458,8 +1470,9 @@ function updateDriveStatus(connected) {
     st.innerHTML = '<span style="color:var(--grn)">✅ 接続済み — 写真・データを自動同期中</span>';
     loginBtn.style.display  = 'none';
     logoutBtn.style.display = 'inline-flex';
+    // 接続中は「再認証」ボタンを非表示（誤クリック防止）
     const reAuthBtn = document.getElementById('drive-reauth-btn');
-    if (reAuthBtn) reAuthBtn.style.display = 'inline-flex';
+    if (reAuthBtn) reAuthBtn.style.display = 'none';
     const syncBtn = document.getElementById('hdr-btn-sync');
     if (syncBtn) syncBtn.style.display = 'inline-flex';
     // スプレッドシートリンクを更新
